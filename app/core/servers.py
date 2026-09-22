@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import StrEnum
-
+from app.compat import StrEnum
 from app.db.models import Server
 
 

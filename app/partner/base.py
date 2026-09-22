@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from enum import StrEnum
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.compat import StrEnum
 
 
 class PartnerErrorCategory(StrEnum):

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from enum import StrEnum
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.compat import StrEnum
 from app.core.money import D, money
 from app.db.models import LedgerEntry, User
 
