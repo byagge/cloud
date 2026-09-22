@@ -33,17 +33,16 @@ python -m app.bot.main       # бот + embedded worker + /health :8080
 
 ## Production (без Docker)
 
-См. **[DEPLOY.md](DEPLOY.md)** — venv + systemd, SQLite в `/opt/arix/data`, порт `127.0.0.1:18080`.
+См. **[DEPLOY.md](DEPLOY.md)**. Кратко:
 
 ```bash
-cd /opt/arix
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e .
-cp .env.production.example .env   # заполнить секреты
+cd /opt/cloud
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.production.example .env   # заполнить
 mkdir -p data
-sudo cp deploy/systemd/arix-bot.service /etc/systemd/system/
-sudo systemctl enable --now arix-bot
-curl -sS http://127.0.0.1:18080/health
+cp deploy/systemd/arix-bot.service /etc/systemd/system/
+systemctl enable --now arix-bot
 ```
 
 ## Тесты

@@ -5,16 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=arix
-Group=arix
-WorkingDirectory=/opt/arix
-EnvironmentFile=/opt/arix/.env
-ExecStart=/opt/arix/.venv/bin/python -m app.bot.main
+User=root
+Group=root
+WorkingDirectory=/opt/cloud
+EnvironmentFile=/opt/cloud/.env
+ExecStart=/opt/cloud/.venv/bin/python -m app.bot.main
 Restart=on-failure
 RestartSec=5
-# Do not use system-wide Python
-# Hardening (safe defaults)
-NoNewPrivileges=true
 PrivateTmp=true
 
 [Install]

@@ -1,0 +1,13 @@
+aiogram>=3.13,<4
+aiohttp>=3.10
+sqlalchemy[asyncio]>=2.0.36
+aiosqlite>=0.20
+redis>=5.2
+httpx>=0.28
+pydantic>=2.10
+pydantic-settings>=2.6
+apscheduler>=3.10
+structlog>=24.4
+cryptography>=44.0
+python-dotenv>=1.0
+qrcode[pil]>=8.0

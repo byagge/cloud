@@ -3,7 +3,7 @@ name = "arix-cloud-bot"
 version = "1.0.0"
 description = "ARIX Cloud — Telegram panel for VPS resale via Tihost"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
   "aiogram>=3.13,<4",
   "aiohttp>=3.10",
