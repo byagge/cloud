@@ -1,161 +1,199 @@
-# Деплой ARIX Cloud на сервер (рядом с другими проектами)
+# Деплой ARIX Cloud **без Docker**
 
-Изоляция от чужих сервисов:
+Изоляция от других проектов на том же сервере:
 
 | Что | Как |
 |-----|-----|
-| Compose project | `name: arix` → контейнеры `arix-*` |
-| Postgres / Redis | **без** публикации портов на хост |
-| Health HTTP | только `127.0.0.1:18080` (не занимает чужой `:8080`) |
-| Volumes / network | `arix_pgdata`, `arix_redisdata`, `arix_net` |
-
-Не трогает чужие `postgres`/`redis` на 5432/6379 и другие compose-проекты.
+| Каталог | только `/opt/arix` (не трогаем чужие `/var/www`, `/opt/...`) |
+| Python | свой `.venv` внутри `/opt/arix` |
+| БД | SQLite в `/opt/arix/data/` (не общий Postgres) |
+| Redis | `memory://` + embedded worker (отдельный Redis не нужен) |
+| HTTP | `127.0.0.1:18080` — не занимает чужой `:80` / `:8080` |
+| systemd | юниты `arix-bot.service` |
 
 ---
 
-## 0. На своей машине (подготовка)
+## 1. Залить код
+
+С локальной машины:
 
 ```bash
-cd /path/to/hosting
-
-# секреты не в git
-cp .env.production.example .env
-# отредактируй .env: BOT_TOKEN, OWNER_TG_ID, POSTGRES_PASSWORD, FERNET_KEY, PARTNER_*
-
-# Fernet:
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Залей код на сервер (пример — отдельная папка, не в корень чужих проектов):
-
-```bash
-# с локальной машины
-rsync -avz --exclude '.venv' --exclude 'data' --exclude '.git' --exclude '_tmp_emoji' \
+rsync -avz \
+  --exclude '.venv' --exclude 'data' --exclude '.git' \
+  --exclude '_tmp_emoji' --exclude '.pytest_cache' --exclude '__pycache__' \
   ./ user@SERVER:/opt/arix/
-# .env лучше скопировать отдельно (не светить в истории shell):
-scp .env user@SERVER:/opt/arix/.env
 ```
 
-Или: `git clone` в `/opt/arix` и создать `.env` на сервере из `.env.production.example`.
-
----
-
-## 1. На сервере — один раз
+Или на сервере: `git clone … /opt/arix`.
 
 ```bash
 ssh user@SERVER
 sudo mkdir -p /opt/arix
 sudo chown "$USER:$USER" /opt/arix
 cd /opt/arix
-
-# Docker + Compose plugin уже должны быть (как для других проектов)
-docker --version
-docker compose version
-
-# Проверь, что порты НЕ конфликтуют
-ss -tlnp | grep -E ':18080|:5432|:6379' || true
-# 5432/6379 у других проектов на хосте — ок: наш Postgres/Redis наружу не торчат
-# Если 18080 занят — в .env поставь ARIXX_HTTP_PORT=18081 (или другой свободный)
 ```
-
-Заполни `/opt/arix/.env` (из `.env.production.example`).
-
-Обязательно:
-
-- `BOT_TOKEN`, `OWNER_TG_ID`
-- `POSTGRES_PASSWORD` (сильный)
-- `FERNET_KEY`
-- `USE_FAKE_PARTNER=false` + реальные `PARTNER_BASE_URL` / `PARTNER_API_KEY` (или временно `true` для smoke-теста)
-- `EMBEDDED_WORKER=false` (в compose уже так)
 
 ---
 
-## 2. Запуск (не затрагивает другие compose)
+## 2. Python 3.12+ и venv
 
 ```bash
 cd /opt/arix
 
-# Явный project name на случай старого compose без `name:`
-export COMPOSE_PROJECT_NAME=arix
+# Ubuntu/Debian, если нет 3.12:
+# sudo apt update && sudo apt install -y python3.12 python3.12-venv python3.12-dev
 
-docker compose pull   # образы postgres/redis
-docker compose up -d --build
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
+# для SQLite на проде:
+pip install aiosqlite
+```
 
-docker compose ps
+---
+
+## 3. `.env` (прод без Docker)
+
+```bash
+cp .env.production.example .env
+nano .env
+chmod 600 .env
+```
+
+Минимальный рабочий набор:
+
+```env
+ENV=prod
+BOT_TOKEN=...
+BOT_MODE=polling
+OWNER_TG_ID=...
+ADMIN_CHAT_ID=...
+
+DATABASE_URL=sqlite+aiosqlite:///./data/arix.db
+REDIS_URL=memory://
+EMBEDDED_WORKER=true
+
+HTTP_HOST=127.0.0.1
+HTTP_PORT=18080
+
+USE_FAKE_PARTNER=false
+PARTNER_BASE_URL=https://...
+PARTNER_API_KEY=...
+
+FERNET_KEY=...   # сгенерировать ниже
+SUPPORT_URL=https://t.me/arxixx
+TERMS_URL=https://...
+DEFAULT_LANG=ru
+```
+
+Fernet:
+
+```bash
+source .venv/bin/activate
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Проверка порта:
+
+```bash
+ss -tlnp | grep 18080 || echo "18080 free"
+# если занят — смени HTTP_PORT в .env (например 18081)
+```
+
+---
+
+## 4. Ручной smoke-тест
+
+```bash
+cd /opt/arix
+source .venv/bin/activate
+mkdir -p data
+python -m app.bot.main
+```
+
+В другом SSH:
+
+```bash
 curl -sS http://127.0.0.1:18080/health
-docker compose logs -f --tail=100 bot worker
 ```
 
-Ожидаемый health: `{"db":"ok","redis":"ok",...}`.
-
-В Telegram: `/start` → оферта → `/admin`.
+В Telegram: `/start`. Остановка: `Ctrl+C`.
 
 ---
 
-## 3. Обновление кода
+## 5. systemd (автозапуск)
+
+Создать системного пользователя (один раз) **или** в юните поставить своего `User=`:
+
+```bash
+sudo useradd --system --home /opt/arix --shell /usr/sbin/nologin arix 2>/dev/null || true
+sudo chown -R arix:arix /opt/arix
+```
+
+```bash
+sudo cp /opt/arix/deploy/systemd/arix-bot.service /etc/systemd/system/
+# если юзер не arix: sudo nano /etc/systemd/system/arix-bot.service  → User=/Group=
+sudo systemctl daemon-reload
+sudo systemctl enable --now arix-bot
+sudo systemctl status arix-bot
+journalctl -u arix-bot -f
+```
+
+Обновление:
 
 ```bash
 cd /opt/arix
-# git pull   # или rsync снова
-export COMPOSE_PROJECT_NAME=arix
-docker compose up -d --build
-docker compose logs -f --tail=50 bot
+# git pull  или  rsync
+source .venv/bin/activate
+pip install -e .
+pip install aiosqlite
+sudo systemctl restart arix-bot
+curl -sS http://127.0.0.1:18080/health
 ```
 
-Данные БД в volume `arix_pgdata` сохраняются между ребилдами.
-
----
-
-## 4. Остановка / удаление только ARIX
+Стоп только ARIX:
 
 ```bash
-cd /opt/arix
-export COMPOSE_PROJECT_NAME=arix
-
-# стоп контейнеров, volumes оставить
-docker compose down
-
-# полный снос включая БД (осторожно)
-# docker compose down -v
+sudo systemctl stop arix-bot
+# disable: sudo systemctl disable arix-bot
 ```
-
-Чужие проекты в других каталогах (`docker compose` там) не затрагиваются.
 
 ---
 
-## 5. Полезные команды
+## 6. Бэкап SQLite
 
 ```bash
-docker compose -p arix ps
-docker compose -p arix logs -f bot
-docker compose -p arix exec bot python -c "from app.config import get_settings; print(get_settings().env)"
-docker compose -p arix restart bot worker
-```
-
-Бэкап Postgres:
-
-```bash
-docker compose -p arix exec -T postgres \
-  pg_dump -U arix arix | gzip > ~/arix-backup-$(date +%F).sql.gz
+cp /opt/arix/data/arix.db ~/arix-$(date +%F).db
+# или
+sqlite3 /opt/arix/data/arix.db ".backup '/home/$USER/arix-$(date +%F).db'"
 ```
 
 ---
 
-## 6. Webhook (опционально)
+## 7. Опционально: свой Postgres / Redis
 
-Если нужен webhook вместо polling:
+Только если **осознанно** поднимаешь отдельные БД и **не** шаришь чужие инстансы:
 
-1. В `.env`: `BOT_MODE=webhook`, `PUBLIC_BASE_URL=https://bot.yourdomain.com`
-2. Проксируй с nginx/caddy на `127.0.0.1:18080` (только этот vhost)
-3. Не вешай на порт, который уже занят другим сайтом — reverse-proxy по `server_name`
+- создай **отдельную** БД/юзера `arix` (не пиши в чужую БД)
+- `DATABASE_URL=postgresql+asyncpg://arix:PASS@127.0.0.1:5432/arix`
+- для отдельного worker: реальный Redis + `EMBEDDED_WORKER=false` + юнит `arix-worker.service`
+
+По умолчанию этого не нужно — SQLite + embedded worker достаточно.
 
 ---
 
-## Чеклист «не задеть чужое»
+## 8. Webhook (опционально)
 
-- [ ] Каталог отдельно: `/opt/arix` (не `/var/www` чужого сайта)
-- [ ] `COMPOSE_PROJECT_NAME=arix` / `name: arix` в compose
-- [ ] Postgres/Redis **без** `ports:` на хост
-- [ ] HTTP только `127.0.0.1:18080` (или свой свободный порт)
-- [ ] Свои volumes `arix_*`, своя сеть `arix_net`
-- [ ] `.env` не в git, права `chmod 600 .env`
+`BOT_MODE=webhook`, `PUBLIC_BASE_URL=https://bot.domain.com`, в nginx отдельный `server_name` → `proxy_pass http://127.0.0.1:18080`. Чужие сайты не трогать.
+
+---
+
+## Чеклист
+
+- [ ] Каталог `/opt/arix`, свой `.venv`
+- [ ] SQLite только в `/opt/arix/data/`
+- [ ] `HTTP_HOST=127.0.0.1`, свободный `HTTP_PORT` (18080)
+- [ ] `chmod 600 .env`
+- [ ] Юнит `arix-bot` — не править чужие systemd-сервисы
+- [ ] Не ставить пакеты в system Python чужих проектов

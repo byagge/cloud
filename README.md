@@ -31,25 +31,19 @@ python -m app.bot.main       # бот + embedded worker + /health :8080
 
 В чате: `/start` → принять оферту → **Пополнить** → «Проверить оплату» (в dev fake сразу зачисляет) → **Купить сервер**.
 
-## Production
+## Production (без Docker)
 
-Изолированный Docker-стек (не трогает чужие Postgres/Redis/порты): см. **[DEPLOY.md](DEPLOY.md)**.
-
-Кратко на сервере:
+См. **[DEPLOY.md](DEPLOY.md)** — venv + systemd, SQLite в `/opt/arix/data`, порт `127.0.0.1:18080`.
 
 ```bash
 cd /opt/arix
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .
 cp .env.production.example .env   # заполнить секреты
-export COMPOSE_PROJECT_NAME=arix
-docker compose up -d --build
+mkdir -p data
+sudo cp deploy/systemd/arix-bot.service /etc/systemd/system/
+sudo systemctl enable --now arix-bot
 curl -sS http://127.0.0.1:18080/health
-```
-
-```env
-# ключевые отличия от local — в .env.production.example
-EMBEDDED_WORKER=false
-USE_FAKE_PARTNER=false
-ARIXX_HTTP_PORT=18080
 ```
 
 ## Тесты

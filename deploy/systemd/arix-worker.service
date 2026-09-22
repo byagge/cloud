@@ -1,0 +1,19 @@
+[Unit]
+Description=ARIX Cloud job worker (only if EMBEDDED_WORKER=false + real Redis)
+After=network-online.target arix-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arix
+Group=arix
+WorkingDirectory=/opt/arix
+EnvironmentFile=/opt/arix/.env
+ExecStart=/opt/arix/.venv/bin/python -m app.worker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
