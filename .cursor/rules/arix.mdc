@@ -1,0 +1,23 @@
+---
+description: ARIX Cloud Bot hard rules from TZ
+globs:
+  - app/**/*
+  - tests/**/*
+  - alembic/**/*
+---
+
+Проект: ARIX Cloud Bot (Python 3.12, aiogram 3, PostgreSQL, Redis).
+Источник требований: sow.md / docs/TZ.md. Если код расходится с ТЗ, прав ТЗ.
+
+Жёсткие правила:
+1. Деньги только Decimal. float для денег запрещён. Округление явно (ROUND_CEILING для цен).
+2. Партнёрский API вызывается ТОЛЬКО через PartnerAdapter (app/partner). Прямой httpx к партнёру в других местах запрещён.
+3. Любая запись к партнёру (POST/PATCH) идёт ТОЛЬКО через job-диспетчер (app/jobs/dispatcher.py) и учитывается в лимите записи.
+4. Любое изменение баланса только через app/core/ledger.py, в одной транзакции с проводкой.
+5. Пароли серверов, API-ключи, токены не попадают в логи, БД, jobs.result, аудит, тексты ошибок.
+6. Имена полей партнёрского API не выдумывать. Неизвестное читать через .get(), помечать `# ASSUMPTION`, покрывать contract-тестом с фикстурой.
+7. Каждый модуль с логикой идёт вместе с тестами (pytest). Без тестов задача не закрыта.
+8. Работай по этапам M0..M8 из раздела 16. Этап Phase 2 (деплой, ИИ-агент) не трогать.
+9. Проверка перед коммитом: ruff check, ruff format --check, mypy app/core app/partner app/payments, pytest.
+10. Тексты бота только через app/bot/texts (ключи), не строками в хендлерах.
+11. UI в стиле Outreach: premium emoji (pe/icon_id), HTML-экраны, edit на месте, кнопки с icon_custom_emoji_id.

@@ -1,0 +1,99 @@
+# Isolated stack for ARIX Cloud — does not bind host 5432/6379
+# (avoids clashing with other projects on the same server).
+#
+# Usage:
+#   cp .env.production.example .env   # fill secrets
+#   docker compose up -d --build
+#
+# Project name forces container/network/volume prefix `arix_*`.
+
+name: arix
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arix-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-arix}
+    volumes:
+      - arix_pgdata:/var/lib/postgresql/data
+    # No host ports — only reachable from this compose network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arix} -d ${POSTGRES_DB:-arix}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - arix_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: arix-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - arix_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - arix_net
+
+  bot:
+    build: .
+    image: arix-cloud-bot:latest
+    container_name: arix-bot
+    restart: unless-stopped
+    command: python -m app.bot.main
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arix}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arix}
+      REDIS_URL: redis://redis:6379/0
+      EMBEDDED_WORKER: "false"
+    # Bind health only on localhost with a unique port (won't steal 8080 from others)
+    ports:
+      - "127.0.0.1:${ARIXX_HTTP_PORT:-18080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - arix_net
+
+  worker:
+    build: .
+    image: arix-cloud-bot:latest
+    container_name: arix-worker
+    restart: unless-stopped
+    command: python -m app.worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arix}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arix}
+      REDIS_URL: redis://redis:6379/0
+      EMBEDDED_WORKER: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bot:
+        condition: service_started
+    networks:
+      - arix_net
+
+volumes:
+  arix_pgdata:
+    name: arix_pgdata
+  arix_redisdata:
+    name: arix_redisdata
+
+networks:
+  arix_net:
+    name: arix_net
+    driver: bridge
