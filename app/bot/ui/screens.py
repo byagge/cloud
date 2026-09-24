@@ -122,22 +122,24 @@ def server_card_text(user, server) -> str:
     lang = user.lang or "ru"
     st = display_status(server)
     status_map = STATUS_RU if lang == "ru" else STATUS_EN
-    expires = (
-        server.rent_expires_at.strftime("%d.%m.%Y %H:%M") if server.rent_expires_at else "—"
-    )
+    expires_at = server.rent_expires_at
+    try:
+        expires = expires_at.strftime("%d.%m.%Y %H:%M") if expires_at else "—"
+    except Exception:
+        expires = "—"
     auto = ("да" if lang == "ru" else "yes") if server.auto_renew and not server.cancelled else ("нет" if lang == "ru" else "no")
     return decorate(
         t(
             "server_card",
             lang,
-            dot=STATUS_DOT[st],
-            name=escape(server.display_name),
-            status=status_map[st],
-            location=escape(server.location),
+            dot=STATUS_DOT.get(st, "⚪"),
+            name=escape(server.display_name or f"server-{server.id}"),
+            status=status_map.get(st, str(st)),
+            location=escape(server.location or "—"),
             plan=escape(server.plan_label or "—"),
             os=escape(server.os_label or "—"),
-            ip=server.ip or "—",
-            login=server.login or "root",
+            ip=escape(str(server.ip or "—")),
+            login=escape(str(server.login or "root")),
             expires=expires,
             auto_renew=auto,
         )

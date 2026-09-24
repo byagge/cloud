@@ -49,7 +49,7 @@ PACK: dict[str, str] = {
     "up": "5206401524200145033",
     "down": "5206510891247371052",
     # OS logos — replace IDs with your pack's custom emoji
-    "os_windows": "5357187187328688065",
+    "os_windows": "6298333093044422573",
     "os_ubuntu": "5300967525712929829",
     "os_debian": "5300808388584678952",
     "os_alma": "5359640494123000314",
@@ -57,7 +57,7 @@ PACK: dict[str, str] = {
     "os_centos": "5300758588438880795",
     "os_oracle": "5300965854970651009",
     "os_freebsd": "5300957668762987048",
-    "os_linux": "5300957668762987048",
+    "os_linux": "5447259175581132372",
     "os_other": "5301233981189005137",
     # Animated flags (optional) — paste custom-emoji document_id from your pack:
     # "flag_germany": "….…",

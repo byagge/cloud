@@ -35,12 +35,6 @@ REF_BONUS = Decimal("2.00")
 REF_WELCOME = Decimal("1.00")
 
 
-async def _counts(session, user_id: int) -> tuple[int, int]:
-    servers = (await session.scalars(select(Server).where(Server.user_id == user_id))).all()
-    exp = sum(1 for s in servers if is_expiring(s))
-    return len(servers), exp
-
-
 async def show_home(event: Message | CallbackQuery, user, admin_role: str | None) -> None:
     factory = get_session_factory()
     async with factory() as session:
@@ -50,6 +44,18 @@ async def show_home(event: Message | CallbackQuery, user, admin_role: str | None
         lang = (db_user or user).lang or "en"
     markup = main_menu(is_admin=bool(admin_role), lang=lang)
     await show_home_banner(event, text, markup, lang=lang)
+
+
+async def _counts(session, user_id: int) -> tuple[int, int]:
+    servers = (await session.scalars(select(Server).where(Server.user_id == user_id))).all()
+    exp = 0
+    for s in servers:
+        try:
+            if is_expiring(s):
+                exp += 1
+        except Exception:
+            continue
+    return len(servers), exp
 
 
 async def _show_language_pick(event: Message | CallbackQuery, *, lang: str, onboarding: bool) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -71,14 +71,18 @@ def _dt(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, tz=datetime.now().astimezone().tzinfo)
-    s = str(value).replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(s)
-    except ValueError:
-        return None
+        dt = value
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=timezone.utc)
+    else:
+        s = str(value).replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def parse_ping(data: dict[str, Any]) -> Ping:

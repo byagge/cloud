@@ -63,11 +63,16 @@ async def list_servers(event: Message | CallbackQuery, db_user, callback_data: S
     page = min(page, total_pages - 1)
     chunk = servers[page * PAGE : (page + 1) * PAGE]
     items = []
-    for s in chunk:
-        st = display_status(s)
-        from app.core.servers import STATUS_DOT
+    from app.core.servers import STATUS_DOT
 
-        items.append((s.id, f"{STATUS_DOT[st]} {s.display_name}"))
+    for s in chunk:
+        try:
+            st = display_status(s)
+            dot = STATUS_DOT.get(st, "⚪")
+        except Exception:
+            dot = "⚪"
+        name = (s.display_name or f"server-{s.id}")[:40]
+        items.append((s.id, f"{dot} {name}"))
     lang = db_user.lang or "ru"
     text = decorate(t("servers_list", lang, count=len(servers), monitor="{monitor}"))
     await show_banner(event, text, servers_kb(items, page, total_pages, lang), banner="servers", lang=lang)
@@ -75,15 +80,22 @@ async def list_servers(event: Message | CallbackQuery, db_user, callback_data: S
 
 @router.callback_query(SrvCB.filter(F.action == "open"))
 async def open_server(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+    from html import escape
+
     factory = get_session_factory()
     async with factory() as session:
         server = await session.get(Server, callback_data.server_id)
         if not server or server.user_id != db_user.id:
             await query.answer(t("not_found", db_user.lang), show_alert=True)
             return
-        st = display_status(server)
-        actions = ACTIONS.get(st, set())
-        text = server_card_text(db_user, server)
+        try:
+            st = display_status(server)
+            actions = ACTIONS.get(st, set())
+            text = server_card_text(db_user, server)
+        except Exception:
+            actions = set()
+            name = escape(server.display_name or f"server-{server.id}")
+            text = f"<b>{name}</b>\nIP: <code>{escape(str(server.ip or '—'))}</code>"
         lang = db_user.lang or "ru"
         await show_banner(
             query,

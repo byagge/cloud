@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+
 from app.compat import StrEnum
 from app.db.models import Server
 
@@ -66,13 +67,23 @@ ACTIONS: dict[DisplayStatus, set[str]] = {
 }
 
 
+def as_utc(dt: datetime | None) -> datetime | None:
+    """Normalize to timezone-aware UTC (SQLite often returns naive)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def display_status(server: Server, now: datetime | None = None) -> DisplayStatus:
-    now = now or datetime.now(timezone.utc)
+    now = as_utc(now) or datetime.now(timezone.utc)
     if server.frozen:
         return DisplayStatus.FROZEN
     if server.missing:
         return DisplayStatus.MISSING
-    if server.rent_expires_at and server.rent_expires_at <= now:
+    expires = as_utc(server.rent_expires_at)
+    if expires and expires <= now:
         return DisplayStatus.EXPIRED
     state = (server.partner_state or "").lower()
     if state in {"creating", "installing", "migrating"}:
@@ -89,10 +100,11 @@ def display_status(server: Server, now: datetime | None = None) -> DisplayStatus
 
 
 def is_expiring(server: Server, now: datetime | None = None, days: int = 3) -> bool:
-    now = now or datetime.now(timezone.utc)
-    if not server.rent_expires_at or server.cancelled:
+    now = as_utc(now) or datetime.now(timezone.utc)
+    expires = as_utc(server.rent_expires_at)
+    if not expires or server.cancelled:
         return False
-    delta = server.rent_expires_at - now
+    delta = expires - now
     return 0 <= delta.total_seconds() <= days * 86400
 
 
