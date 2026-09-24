@@ -27,6 +27,7 @@ TEXTS = {
     "btn_promo": "Промокод",
     "btn_autorenew": "Автопродление",
     "btn_lang": "Язык / Language",
+    "btn_accept_terms": "Принимаю, продолжить",
     "btn_write_manager": "Написать менеджеру",
     "btn_check_pay": "Проверить оплату",
     "btn_enter_promo": "Ввести промокод",
@@ -46,6 +47,7 @@ TEXTS = {
     ),
     "lang_ru": "Русский",
     "lang_en": "English",
+    "choose_lang": "Выберите язык / Choose language",
     "support_title": "{mega} <b>Поддержка</b>",
     "support_body": (
         "\n\n{user} <b>Ваш персональный менеджер:</b> {manager}\n"
@@ -131,7 +133,7 @@ TEXTS = {
     "buy_os_hint": "Выберите операционную систему для вашего сервера:",
     "buy_spec": (
         "Локация: {flag} {location}\n"
-        "Конфигурация: ⚙️ {cpu} vCPU / 💾 {ram} GB RAM / 📂 {disk}GB SSD — {price}\n"
+        "Конфигурация: ⚙️ {cpu} vCPU / 💾 {ram} GB RAM / 📂 {disk}GB SSD — {price}/мес\n"
         "Процессор: 🖥️ {cpu_model}\n"
         "Скорость канала: 🌐 {bandwidth}"
     ),
@@ -208,6 +210,10 @@ TEXTS = {
     "adm_balance": "Баланс ±",
     "adm_user_servers": "Серверы",
     "adm_user_orders": "Заказы",
+    "adm_attach_server": "➕ Сервер по Partner ID",
+    "adm_attach_ask": "Partner ID сервера (число из панели Tihost) для клиента #{id}:",
+    "adm_attach_ok": "Сервер #{sid} привязан (partner {pid}, IP {ip})",
+    "adm_attach_fail": "Не удалось: {err}",
     "adm_open_user": "Клиент",
     "adm_freeze": "Заморозить",
     "adm_unfreeze": "Разморозить",

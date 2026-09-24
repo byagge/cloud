@@ -27,6 +27,7 @@ TEXTS = {
     "btn_promo": "Promo code",
     "btn_autorenew": "Auto-renew",
     "btn_lang": "Language",
+    "btn_accept_terms": "Accept & continue",
     "btn_write_manager": "Message manager",
     "btn_check_pay": "Check payment",
     "btn_enter_promo": "Enter promo code",
@@ -46,6 +47,8 @@ TEXTS = {
     ),
     "lang_ru": "Русский",
     "lang_en": "English",
+    "choose_lang": "Choose language / Выберите язык",
+    "lang_set": "Language saved.",
     "support_title": "{mega} <b>Support</b>",
     "support_body": (
         "\n\n{user} <b>Your personal manager:</b> {manager}\n"
@@ -130,7 +133,7 @@ TEXTS = {
     "buy_os_hint": "Select an operating system for your server:",
     "buy_spec": (
         "Location: {flag} {location}\n"
-        "Config: ⚙️ {cpu} vCPU / 💾 {ram} GB RAM / 📂 {disk}GB SSD — {price}\n"
+        "Config: ⚙️ {cpu} vCPU / 💾 {ram} GB RAM / 📂 {disk}GB SSD — {price}/mo\n"
         "CPU: 🖥️ {cpu_model}\n"
         "Network: 🌐 {bandwidth}"
     ),
@@ -184,7 +187,6 @@ TEXTS = {
     "not_found": "Not found",
     "action_unavailable": "Action unavailable now",
     "terms_gate": "Accept terms first.",
-    "lang_set": "Language saved.",
     "adm_btn_users": "Clients",
     "adm_btn_servers": "Servers",
     "adm_btn_orders": "Orders",
@@ -207,6 +209,10 @@ TEXTS = {
     "adm_balance": "Balance ±",
     "adm_user_servers": "Servers",
     "adm_user_orders": "Orders",
+    "adm_attach_server": "➕ Server by Partner ID",
+    "adm_attach_ask": "Partner server ID (from Tihost panel) for client #{id}:",
+    "adm_attach_ok": "Server #{sid} attached (partner {pid}, IP {ip})",
+    "adm_attach_fail": "Failed: {err}",
     "adm_open_user": "Client",
     "adm_freeze": "Freeze",
     "adm_unfreeze": "Unfreeze",

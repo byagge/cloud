@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     support_url: str = "https://t.me/arxixx"
     terms_url: str = "https://example.com/terms"
-    default_lang: str = "ru"
+    default_lang: str = "en"
     sentry_dsn: str = ""
 
     http_host: str = "0.0.0.0"

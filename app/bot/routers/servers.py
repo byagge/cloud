@@ -17,6 +17,7 @@ from app.core.servers import ACTIONS, action_allowed, display_status
 from app.core.settings_store import settings_store
 from app.db.models import Job, Server
 from app.db.session import get_session_factory
+from app.partner import get_partner
 
 router = Router()
 PAGE = 6
@@ -185,7 +186,16 @@ async def renew_menu(query: CallbackQuery, callback_data: SrvCB, db_user) -> Non
         if not server or server.user_id != db_user.id:
             await query.answer(t("not_found", db_user.lang), show_alert=True)
             return
-        prices = server.renew_prices or {}
+        prices = dict(server.renew_prices or {})
+        if not prices and server.partner_id:
+            try:
+                remote = await get_partner().get_server(server.partner_id)
+                if remote.renew_prices:
+                    prices = {str(k): str(v) for k, v in remote.renew_prices.items()}
+                    server.renew_prices = prices
+                    await session.commit()
+            except Exception:
+                pass
         days = []
         for d in (2, 7, 30, 90, 180, 365):
             raw = prices.get(str(d)) or prices.get(d)

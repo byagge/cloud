@@ -50,22 +50,44 @@ def _flag(code: str) -> str:
     return LOC_META.get(code, {}).get("flag", "🌐")
 
 
-async def _catalog(redis, location: str):
-    raw = await redis.get(f"catalog:plans:{location}")
-    if raw:
-        data = json.loads(raw)
-        return data.get("plans") or []
+async def _catalog(redis, location: str, *, force: bool = False):
+    key = f"catalog:plans:{location}"
+    if not force:
+        raw = await redis.get(key)
+        if raw:
+            data = json.loads(raw)
+            plans = data.get("plans") or []
+            # discard broken cache (no prices) — common after API shape mismatch
+            if plans and any((p.get("prices") or {}) for p in plans):
+                return plans
     partner = get_partner()
     plans = await partner.plans(location)
     payload = {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "plans": [p.model_dump(mode="json") for p in plans],
     }
-    await redis.set(f"catalog:plans:{location}", json.dumps(payload), ex=3600)
+    # only cache if we got usable prices
+    if any(p.prices for p in plans):
+        await redis.set(key, json.dumps(payload), ex=600)
     return payload["plans"]
 
 
+def _monthly_cost(plan: dict) -> Decimal:
+    prices = plan.get("prices") or {}
+    raw = prices.get("1") or prices.get(1) or prices.get("monthly")
+    if raw is None and prices:
+        # smallest period as fallback
+        try:
+            keys = [int(k) for k in prices.keys()]
+            raw = prices.get(str(min(keys))) or prices.get(min(keys))
+        except Exception:
+            raw = None
+    return D(raw or 0)
+
+
 def _price(partner_cost: Decimal) -> Decimal:
+    if partner_cost <= 0:
+        return Decimal("0")
     return client_price(
         partner_cost,
         settings_store.decimal("markup"),
@@ -86,7 +108,7 @@ def _spec_block(lang: str, *, location: str, plan: dict, price: Decimal) -> str:
             cpu=plan.get("cpu", 1),
             ram=int(plan.get("ram_mb", 0)) // 1024,
             disk=plan.get("disk_gb", 0),
-            price=format_usd(price),
+            price=format_usd(price) if price > 0 else "—",
             cpu_model=escape(str(plan.get("cpu_model") or meta.get("cpu_model") or "AMD Ryzen 9 5950X")),
             bandwidth=escape(str(plan.get("bandwidth") or meta.get("bandwidth") or "1 Гбит/с")),
         )
@@ -95,14 +117,13 @@ def _spec_block(lang: str, *, location: str, plan: dict, price: Decimal) -> str:
 
 
 def _plan_btn_label(p: dict) -> str:
-    prices = p.get("prices") or {}
-    cost = D(prices.get("1") or prices.get(1) or 0)
+    cost = _monthly_cost(p)
     price = _price(cost)
     tier = int(p.get("tier") or 1)
     emoji = TIER_EMOJI.get(tier, "🌪")
     ram = int(p.get("ram_mb", 0)) // 1024
-    # match screenshot style without $ sign ambiguity — use $N
-    return f"{emoji} {p.get('cpu')} vCPU / {ram} GB RAM / {p.get('disk_gb')}GB SSD - {price}$"
+    price_s = f"{price}$" if price > 0 else "—"
+    return f"{emoji} {p.get('cpu')} vCPU / {ram} GB RAM / {p.get('disk_gb')}GB SSD - {price_s}"
 
 
 @router.callback_query(NavCB.filter(F.to == "buy"))
@@ -114,13 +135,11 @@ async def buy_start(query: CallbackQuery, db_user, redis) -> None:
     items = []
     for loc in LOCATIONS:
         try:
-            plans = await _catalog(redis, loc)
-            monthly = []
-            for p in plans:
-                prices = p.get("prices") or {}
-                monthly.append(_price(D(prices.get("1") or prices.get(1) or 0)))
+            plans = await _catalog(redis, loc, force=False)
+            monthly = [_price(_monthly_cost(p)) for p in plans if _monthly_cost(p) > 0]
             min_p = min(monthly) if monthly else Decimal("0")
-            items.append((loc, f"{_flag(loc)} {_loc_name(loc, lang)}", format_usd(min_p)))
+            price_label = format_usd(min_p) if min_p > 0 else "—"
+            items.append((loc, f"{_flag(loc)} {_loc_name(loc, lang)}", price_label))
         except Exception:
             items.append((loc, f"{_flag(loc)} {_loc_name(loc, lang)}", "—"))
     text = decorate(t("buy_location", lang, pin="{pin}"))
@@ -144,11 +163,14 @@ async def buy_loc(query: CallbackQuery, callback_data: BuyCB, db_user, redis) ->
         await session.commit()
         draft_id = order.id
 
-    plans = await _catalog(redis, location)
-    plans_sorted = sorted(
-        plans,
-        key=lambda x: D((x.get("prices") or {}).get("1") or (x.get("prices") or {}).get(1) or 0),
-    )
+    plans = await _catalog(redis, location, force=True)
+    plans_sorted = sorted(plans, key=lambda x: _monthly_cost(x) or Decimal("999999"))
+    if not plans_sorted or all(_monthly_cost(p) <= 0 for p in plans_sorted):
+        await query.answer(
+            "Каталог без цен. Проверьте PARTNER_API_KEY / ответ Tihost.",
+            show_alert=True,
+        )
+        return
     plan_btns = [(p["id"], _plan_btn_label(p)) for p in plans_sorted]
 
     async with factory() as session:
@@ -231,7 +253,7 @@ async def buy_plan(query: CallbackQuery, callback_data: BuyCB, db_user, redis) -
         group_btns.append((g, f"{g} ({len(groups[g])})", os_group_icon(g)))
 
     prices = plan.get("prices") or {}
-    monthly = _price(D(prices.get("1") or prices.get(1) or 0))
+    monthly = _price(_monthly_cost(plan))
     text = (
         t("buy_os_group_title", lang)
         + "\n\n"
@@ -266,7 +288,7 @@ async def buy_os_group(query: CallbackQuery, callback_data: BuyCB, db_user) -> N
         if os_group(o["name"]) == group
     ]
     prices = plan.get("prices") or {}
-    monthly = _price(D(prices.get("1") or prices.get(1) or 0))
+    monthly = _price(_monthly_cost({"prices": prices}))
     text = (
         t("buy_os_title", lang, group=escape(group))
         + "\n\n"
@@ -300,19 +322,33 @@ async def buy_os(query: CallbackQuery, callback_data: BuyCB, db_user) -> None:
 
     terms = []
     for months in (1, 3, 6, 12):
-        cost = prices.get(str(months)) or prices.get(months)
-        if cost is None:
+        cost_raw = prices.get(str(months)) or prices.get(months)
+        if cost_raw is None:
             continue
-        price = _price(D(cost))
-        monthly = _price(D(prices.get("1") or prices.get(1) or cost))
+        cost = D(cost_raw)
+        if cost <= 0:
+            continue
+        price = _price(cost)
+        monthly = _price(_monthly_cost({"prices": prices}) or cost)
         disc = ""
-        if months > 1:
+        if months > 1 and monthly > 0:
             full = monthly * months
             if full > price:
                 pct = int((1 - (price / full)) * 100)
                 disc = f" (−{pct}%)"
-        label = f"{months} мес · {format_usd(price)}{disc}" if lang == "ru" else f"{months} mo · {format_usd(price)}{disc}"
+        label = (
+            f"{months} мес · {format_usd(price)}{disc}"
+            if lang == "ru"
+            else f"{months} mo · {format_usd(price)}{disc}"
+        )
         terms.append((months, label))
+
+    if not terms:
+        await query.answer(
+            "Нет сроков/цен для тарифа. Обновите каталог или API-ключ.",
+            show_alert=True,
+        )
+        return
 
     text = decorate(
         t(
@@ -373,7 +409,13 @@ async def buy_term(query: CallbackQuery, callback_data: BuyCB, db_user) -> None:
         plan = (order.snapshot or {}).get("plan") or {}
         prices = plan.get("prices") or {}
         cost = D(prices.get(str(months)) or prices.get(months) or 0)
+        if cost <= 0:
+            await query.answer("Цена тарифа не задана", show_alert=True)
+            return
         price = _price(cost)
+        if price <= 0:
+            await query.answer("Цена тарифа не задана", show_alert=True)
+            return
         order.partner_cost_usd = money(cost)
         order.price_usd = price
         from app.db.models import User
@@ -406,7 +448,7 @@ async def buy_term(query: CallbackQuery, callback_data: BuyCB, db_user) -> None:
 
 
 @router.callback_query(BuyCB.filter(F.step == "go"))
-async def buy_go(query: CallbackQuery, callback_data: BuyCB, db_user) -> None:
+async def buy_go(query: CallbackQuery, callback_data: BuyCB, db_user, redis) -> None:
     lang = db_user.lang
     factory = get_session_factory()
     async with factory() as session:
@@ -414,12 +456,35 @@ async def buy_go(query: CallbackQuery, callback_data: BuyCB, db_user) -> None:
         if not order or order.user_id != db_user.id or order.status != "draft":
             await query.answer(t("order_stale", lang), show_alert=True)
             return
+        if not order.plan_id or not order.os_id or not order.months or not order.location:
+            await query.answer("Черновик неполный", show_alert=True)
+            return
         max_srv = settings_store.int("max_servers_per_user")
         if await get_active_server_count(session, db_user.id) >= max_srv:
             await query.answer(f"max {max_srv}", show_alert=True)
             return
+
+        # refresh partner cost before charge
+        try:
+            plans = await _catalog(redis, order.location, force=True)
+            plan = next((p for p in plans if str(p.get("id")) == str(order.plan_id)), None)
+            if plan:
+                prices = plan.get("prices") or {}
+                fresh_cost = D(prices.get(str(order.months)) or prices.get(order.months) or 0)
+                if fresh_cost > 0:
+                    order.partner_cost_usd = money(fresh_cost)
+                    order.price_usd = _price(fresh_cost)
+                    snap = dict(order.snapshot or {})
+                    snap["plan"] = plan
+                    order.snapshot = snap
+        except Exception:
+            pass
+
         price = order.price_usd or Decimal("0")
         cost = order.partner_cost_usd or Decimal("0")
+        if price <= 0 or cost <= 0:
+            await query.answer("Цена тарифа не задана. Обновите каталог.", show_alert=True)
+            return
         from app.db.models import User
 
         user = await session.get(User, db_user.id)

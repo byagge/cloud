@@ -47,9 +47,28 @@ async def show_home(event: Message | CallbackQuery, user, admin_role: str | None
         count, exp = await _counts(session, user.id)
         db_user = await session.get(User, user.id)
         text = home_text(db_user or user, count, exp)
-        lang = (db_user or user).lang or "ru"
+        lang = (db_user or user).lang or "en"
     markup = main_menu(is_admin=bool(admin_role), lang=lang)
     await show_home_banner(event, text, markup, lang=lang)
+
+
+async def _show_language_pick(event: Message | CallbackQuery, *, lang: str, onboarding: bool) -> None:
+    title = t("choose_lang", lang)
+    text = f"{pe('at')} <b>{title}</b>"
+    kb = lang_kb(onboarding=onboarding, lang=lang)
+    if isinstance(event, CallbackQuery):
+        await show_banner(event, text, kb, banner="profile", lang=lang)
+    else:
+        await event.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+async def _show_terms(event: Message | CallbackQuery, *, lang: str) -> None:
+    settings = get_settings()
+    text = decorate(t("welcome", lang, terms_url=settings.terms_url))
+    if isinstance(event, CallbackQuery):
+        await show_banner(event, text, terms_kb(lang), banner="profile", lang=lang)
+    else:
+        await event.answer(text, reply_markup=terms_kb(lang), parse_mode="HTML")
 
 
 async def _grant_referral_bonuses(session, user: User) -> None:
@@ -86,7 +105,6 @@ async def _grant_referral_bonuses(session, user: User) -> None:
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, db_user, admin_role) -> None:
     await state.clear()
-    settings = get_settings()
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) > 1 and parts[1].startswith("ref_") and not db_user.ref_source:
         factory = get_session_factory()
@@ -102,9 +120,10 @@ async def cmd_start(message: Message, state: FSMContext, db_user, admin_role) ->
         reply_markup=panel_keyboard(),
         parse_mode="HTML",
     )
+    lang = db_user.lang or "en"
     if not db_user.accepted_terms:
-        text = decorate(t("welcome", db_user.lang, terms_url=settings.terms_url))
-        await message.answer(text, reply_markup=terms_kb(), parse_mode="HTML")
+        # First start: language → terms → home
+        await _show_language_pick(message, lang=lang, onboarding=True)
         return
     await show_home(message, db_user, admin_role)
 
@@ -121,6 +140,7 @@ async def accept_terms(query: CallbackQuery, db_user, admin_role) -> None:
             db_user.accepted_terms = True
             await session.refresh(u)
             db_user.balance_usd = u.balance_usd
+            db_user.lang = u.lang
     await show_home(query, db_user, admin_role)
 
 
@@ -129,7 +149,7 @@ async def accept_terms(query: CallbackQuery, db_user, admin_role) -> None:
 async def cmd_menu(message: Message, state: FSMContext, db_user, admin_role) -> None:
     await state.clear()
     if not db_user.accepted_terms:
-        await message.answer(t("terms_gate", db_user.lang))
+        await _show_language_pick(message, lang=db_user.lang or "en", onboarding=True)
         return
     await show_home(message, db_user, admin_role)
 
@@ -137,6 +157,9 @@ async def cmd_menu(message: Message, state: FSMContext, db_user, admin_role) -> 
 @router.callback_query(NavCB.filter(F.to == "home"))
 async def nav_home(query: CallbackQuery, state: FSMContext, db_user, admin_role) -> None:
     await state.clear()
+    if not db_user.accepted_terms:
+        await _show_language_pick(query, lang=db_user.lang or "en", onboarding=True)
+        return
     await show_home(query, db_user, admin_role)
 
 
@@ -149,8 +172,11 @@ def _manager_from_url(url: str) -> str:
 @router.callback_query(NavCB.filter(F.to == "support"))
 @router.callback_query(NavCB.filter(F.to == "help"))
 async def nav_support(query: CallbackQuery, db_user) -> None:
+    if not db_user.accepted_terms:
+        await query.answer(t("terms_gate", db_user.lang or "en"), show_alert=True)
+        return
     settings = get_settings()
-    lang = db_user.lang or "ru"
+    lang = db_user.lang or "en"
     url = settings.support_url or "https://t.me/arxixx"
     manager = _manager_from_url(url)
     text = support_text(url, manager=manager, lang=lang)
@@ -159,15 +185,8 @@ async def nav_support(query: CallbackQuery, db_user) -> None:
 
 @router.callback_query(NavCB.filter(F.to == "lang"))
 async def nav_lang(query: CallbackQuery, db_user) -> None:
-    lang = db_user.lang or "ru"
-    title = "Language" if lang == "en" else "Язык / Language"
-    await show_banner(
-        query,
-        f"{pe('at')} <b>{title}</b>",
-        lang_kb(),
-        banner="profile",
-        lang=lang,
-    )
+    lang = db_user.lang or "en"
+    await _show_language_pick(query, lang=lang, onboarding=not db_user.accepted_terms)
 
 
 @router.callback_query(NavCB.filter(F.to.in_({"lang_ru", "lang_en"})))
@@ -181,13 +200,19 @@ async def set_lang(query: CallbackQuery, callback_data: NavCB, db_user, admin_ro
             await session.commit()
             db_user.lang = lang
     await query.answer(t("lang_set", lang))
+    if not db_user.accepted_terms:
+        await _show_terms(query, lang=lang)
+        return
     await show_home(query, db_user, admin_role)
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, db_user) -> None:
+    if not db_user.accepted_terms:
+        await _show_language_pick(message, lang=db_user.lang or "en", onboarding=True)
+        return
     settings = get_settings()
-    lang = db_user.lang or "ru"
+    lang = db_user.lang or "en"
     url = settings.support_url or "https://t.me/arxixx"
     manager = _manager_from_url(url)
     await show_banner(

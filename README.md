@@ -37,7 +37,7 @@ python -m app.bot.main       # бот + embedded worker + /health :8080
 
 ```bash
 cd /opt/cloud
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.production.example .env   # заполнить
 mkdir -p data

@@ -5,8 +5,8 @@
 ```bash
 cd /opt/cloud
 
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 
@@ -54,7 +54,7 @@ journalctl -u arix-bot -f
 
 ```bash
 cd /opt/cloud
-source .venv/bin/activate
+source venv/bin/activate
 pip install -r requirements.txt
 systemctl restart arix-bot
 ```

@@ -75,9 +75,12 @@ def panel_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def terms_kb() -> InlineKeyboardMarkup:
+def terms_kb(lang: str = "en") -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    label = t("btn_accept_terms", lang)
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_ib("Принимаю, продолжить", TermsCB(ok=1).pack(), "check")]]
+        inline_keyboard=[[_ib(label, TermsCB(ok=1).pack(), "check")]]
     )
 
 
@@ -252,7 +255,7 @@ def history_kb(*, back: str = "profile", page: int = 0, has_next: bool = False, 
 
 def locations_kb(items: list[tuple[str, str, str]]) -> InlineKeyboardMarkup:
     rows = [
-        [_ib(f"{label} · от {price}", BuyCB(step="loc", arg=code).pack(), "pin")]
+        [_ib(f"{label} · от {price}", BuyCB(step="loc", arg=code).pack(), f"flag_{code}")]
         for code, label, price in items
     ]
     rows.append(back_home_row())
@@ -458,6 +461,13 @@ def admin_user_kb(user_id: int, *, banned: bool, lang: str = "ru") -> InlineKeyb
                 _ib(t("adm_user_servers", lang), AdmCB(section="usr", action="servers", arg=str(user_id)).pack(), "monitor"),
                 _ib(t("adm_user_orders", lang), AdmCB(section="usr", action="orders", arg=str(user_id)).pack(), "bag"),
             ],
+            [
+                _ib(
+                    t("adm_attach_server", lang),
+                    AdmCB(section="usr", action="attach", arg=str(user_id)).pack(),
+                    "link",
+                )
+            ],
             [_ib(t("btn_back", lang), AdmCB(section="usr", action="list", arg="0").pack(), "down")],
         ]
     )
@@ -581,13 +591,13 @@ def admin_wallet_kb(wallet_id: str, *, enabled: bool, has_addr: bool, lang: str 
     )
 
 
-def lang_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _ib("Русский", NavCB(to="lang_ru").pack(), "check"),
-                _ib("English", NavCB(to="lang_en").pack(), "at"),
-            ],
-            back_profile_row(),
+def lang_kb(*, onboarding: bool = False, lang: str = "en") -> InlineKeyboardMarkup:
+    rows = [
+        [
+            _ib("English", NavCB(to="lang_en").pack(), "at"),
+            _ib("Русский", NavCB(to="lang_ru").pack(), "check"),
         ]
-    )
+    ]
+    if not onboarding:
+        rows.append(back_profile_row(lang))
+    return InlineKeyboardMarkup(inline_keyboard=rows)

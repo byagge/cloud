@@ -36,6 +36,8 @@ from app.db.session import get_session_factory
 from app.payments.base import GatewayInvoice
 from app.payments.crypto import find_wallet, get_wallets, set_wallet_enabled, upsert_wallet
 from app.payments.service import apply_invoice_state
+from app.partner import get_partner
+from app.partner.base import PartnerError
 
 router = Router()
 PAGE = 8
@@ -51,6 +53,10 @@ class AdminAddr(StatesGroup):
 
 
 class AdminBC(StatesGroup):
+    waiting = State()
+
+
+class AdminAttach(StatesGroup):
     waiting = State()
 
 
@@ -265,6 +271,92 @@ async def admin_bal_apply(message: Message, state: FSMContext, db_user, admin_ro
         u = await session.get(User, uid)
         bal = u.balance_usd if u else amount
     await message.answer(f"OK → {format_usd(bal)}")
+
+
+@router.callback_query(AdmCB.filter((F.section == "usr") & (F.action == "attach")))
+async def admin_user_attach(query: CallbackQuery, callback_data: AdmCB, state: FSMContext, db_user, admin_role) -> None:
+    if not _require(admin_role, "operator"):
+        await query.answer("operator+", show_alert=True)
+        return
+    uid = int(callback_data.arg)
+    await state.set_state(AdminAttach.waiting)
+    await state.update_data(attach_user_id=uid)
+    await query.message.answer(t("adm_attach_ask", db_user.lang or "ru", id=uid))
+    await query.answer()
+
+
+@router.message(AdminAttach.waiting)
+async def admin_attach_apply(message: Message, state: FSMContext, db_user, admin_role) -> None:
+    if not _require(admin_role, "operator"):
+        await state.clear()
+        return
+    data = await state.get_data()
+    uid = int(data.get("attach_user_id") or 0)
+    await state.clear()
+    partner_id = (message.text or "").strip()
+    if not partner_id or not partner_id.isdigit():
+        await message.answer(t("adm_attach_fail", db_user.lang or "ru", err="нужен числовой Partner ID"))
+        return
+    factory = get_session_factory()
+    async with factory() as session:
+        user = await session.get(User, uid)
+        if not user:
+            await message.answer(t("not_found", db_user.lang or "ru"))
+            return
+        existing = await session.scalar(select(Server).where(Server.partner_id == partner_id))
+        if existing:
+            await message.answer(
+                t("adm_attach_fail", db_user.lang or "ru", err=f"уже привязан как #{existing.id}")
+            )
+            return
+        try:
+            remote = await get_partner().get_server(partner_id)
+        except PartnerError as e:
+            await message.answer(t("adm_attach_fail", db_user.lang or "ru", err=str(e)))
+            return
+        except Exception as e:
+            await message.answer(t("adm_attach_fail", db_user.lang or "ru", err=str(e)))
+            return
+        renew = {str(k): str(v) for k, v in (remote.renew_prices or {}).items()}
+        server = Server(
+            user_id=uid,
+            partner_id=str(remote.id),
+            partner_name=remote.name or f"partner-{remote.id}",
+            display_name=remote.name or f"server-{remote.id}",
+            location=remote.location or "germany",
+            os_label=remote.os,
+            login=remote.login,
+            ip=remote.ip,
+            cpu=remote.cpu,
+            ram_mb=remote.ram_mb,
+            disk_gb=remote.disk_gb,
+            partner_state=remote.state or "active",
+            rent_expires_at=remote.rent_expires_at,
+            renew_prices=renew,
+            plan_label=(
+                f"{remote.cpu or '?'} vCPU / {(remote.ram_mb or 0)//1024} GB / {remote.disk_gb or '?'}GB"
+                if remote.cpu or remote.ram_mb
+                else None
+            ),
+        )
+        session.add(server)
+        await session.flush()
+        if not remote.name:
+            server.display_name = f"server-{server.id}"
+        await _audit(
+            session,
+            actor_id=db_user.tg_id,
+            action="server:attach",
+            subject_type="server",
+            subject_id=server.id,
+            after={"partner_id": partner_id, "user_id": uid, "ip": remote.ip},
+        )
+        await session.commit()
+        sid = server.id
+        ip = remote.ip or "—"
+    await message.answer(
+        t("adm_attach_ok", db_user.lang or "ru", sid=sid, pid=partner_id, ip=ip)
+    )
 
 
 @router.callback_query(AdmCB.filter((F.section == "usr") & (F.action == "servers")))

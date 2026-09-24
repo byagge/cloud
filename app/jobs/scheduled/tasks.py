@@ -29,7 +29,11 @@ async def sync_catalog(session: AsyncSession, redis) -> None:
                 "fetched_at": now_utc().isoformat(),
                 "plans": [p.model_dump(mode="json") for p in plans],
             }
-            await redis.set(f"catalog:plans:{loc}", json.dumps(payload), ex=3600)
+            # skip caching empty prices — avoids $0.00 UI after API shape mismatch
+            if any(p.prices for p in plans):
+                await redis.set(f"catalog:plans:{loc}", json.dumps(payload), ex=3600)
+            else:
+                log.warning("sync_catalog_no_prices", location=loc, count=len(plans))
         except Exception:
             log.exception("sync_catalog_failed", location=loc)
 
@@ -46,6 +50,7 @@ async def sync_servers(session: AsyncSession, redis) -> None:
     by_name = {s.name: s for s in remote}
     local = (await session.scalars(select(Server))).all()
     seen: set[int] = set()
+    detail_budget = 5
 
     for server in local:
         remote_s = None
@@ -83,6 +88,22 @@ async def sync_servers(session: AsyncSession, redis) -> None:
             server.rent_expires_at = remote_s.rent_expires_at
         if remote_s.renew_prices:
             server.renew_prices = {str(k): str(v) for k, v in remote_s.renew_prices.items()}
+        elif server.partner_id and not (server.renew_prices or {}) and detail_budget > 0:
+            detail_budget -= 1
+            try:
+                detail = await partner.get_server(server.partner_id)
+                if detail.renew_prices:
+                    server.renew_prices = {str(k): str(v) for k, v in detail.renew_prices.items()}
+                if detail.ip:
+                    server.ip = detail.ip
+                if detail.cpu:
+                    server.cpu = detail.cpu
+                if detail.ram_mb:
+                    server.ram_mb = detail.ram_mb
+                if detail.disk_gb:
+                    server.disk_gb = detail.disk_gb
+            except Exception:
+                log.exception("sync_server_detail_failed", server_id=server.id)
         server.synced_at = now_utc()
         seen.add(server.id)
 

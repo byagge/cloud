@@ -1,4 +1,13 @@
-"""Premium emoji — Translucent Pack (@devaiden), same as Outreach."""
+"""Premium emoji — Translucent Pack (@devaiden), same as Outreach.
+
+OS logos: keys os_* below → used as icon_custom_emoji_id on OS buttons
+(see app/partner/fake.py → os_group_icon → keyboards._ib).
+
+Animated country flags: put custom-emoji IDs from your sticker pack into
+flag_germany / flag_finland / flag_poland. Unicode 🇩🇪 is NOT animatable —
+only Telegram custom emoji (premium) can animate on buttons/text.
+Until IDs are set, flag_* fall back to pin via icon_id().
+"""
 
 from __future__ import annotations
 
@@ -39,7 +48,7 @@ PACK: dict[str, str] = {
     "stack": "5206626000665868017",
     "up": "5206401524200145033",
     "down": "5206510891247371052",
-    # OS logos from _tmp_emoji pack
+    # OS logos — replace IDs with your pack's custom emoji
     "os_windows": "5357187187328688065",
     "os_ubuntu": "5300967525712929829",
     "os_debian": "5300808388584678952",
@@ -50,6 +59,10 @@ PACK: dict[str, str] = {
     "os_freebsd": "5300957668762987048",
     "os_linux": "5300957668762987048",
     "os_other": "5301233981189005137",
+    # Animated flags (optional) — paste custom-emoji document_id from your pack:
+    # "flag_germany": "….…",
+    # "flag_finland": "….…",
+    # "flag_poland": "….…",
 }
 
 _PLACEHOLDER = "😀"
@@ -61,4 +74,8 @@ def pe(name: str) -> str:
 
 
 def icon_id(name: str) -> str:
-    return PACK.get(name) or PACK["cube"]
+    if name in PACK:
+        return PACK[name]
+    if name.startswith("flag_"):
+        return PACK["pin"]
+    return PACK["cube"]

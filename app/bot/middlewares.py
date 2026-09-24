@@ -13,6 +13,19 @@ from app.db.session import get_session_factory
 from app.jobs.results import now_utc
 
 
+def detect_lang(language_code: str | None, *, fallback: str | None = None) -> str:
+    """Map Telegram language_code → bot lang. Default English."""
+    fb = (fallback or get_settings().default_lang or "en").lower()
+    if fb not in {"ru", "en"}:
+        fb = "en"
+    if not language_code:
+        return fb
+    code = language_code.lower().replace("_", "-")
+    if code == "ru" or code.startswith("ru-"):
+        return "ru"
+    return "en"
+
+
 def _tg_user(event: TelegramObject, data: dict[str, Any]) -> TgUser | None:
     # Outer middleware on Update: UserContextMiddleware already puts event_from_user
     user = data.get("event_from_user")
@@ -44,7 +57,7 @@ class DbUserMiddleware(BaseMiddleware):
                     tg_id=tg_user.id,
                     username=tg_user.username,
                     first_name=tg_user.first_name,
-                    lang=get_settings().default_lang,
+                    lang=detect_lang(tg_user.language_code),
                 )
                 session.add(user)
                 await session.flush()
@@ -57,6 +70,11 @@ class DbUserMiddleware(BaseMiddleware):
                 user.username = tg_user.username
                 user.first_name = tg_user.first_name
                 user.last_seen_at = now_utc()
+                # first-run only: keep detected lang until user picks / accepts terms
+                if not user.accepted_terms and tg_user.language_code:
+                    detected = detect_lang(tg_user.language_code)
+                    if user.lang not in {"ru", "en"}:
+                        user.lang = detected
             admin = await session.get(Admin, tg_user.id)
             await session.commit()
             # expire_on_commit=False keeps attributes; refresh to be safe after commit
@@ -121,7 +139,7 @@ class MaintenanceMiddleware(BaseMiddleware):
         from app.bot.texts import t
 
         user: User | None = data.get("db_user")
-        lang = user.lang if user else "ru"
+        lang = user.lang if user else "en"
         text = t("maintenance", lang)
 
         if isinstance(event, Update):

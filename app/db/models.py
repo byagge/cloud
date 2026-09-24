@@ -36,7 +36,7 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     username: Mapped[str | None] = mapped_column(Text)
     first_name: Mapped[str | None] = mapped_column(Text)
-    lang: Mapped[str] = mapped_column(Text, nullable=False, default="ru", server_default="ru")
+    lang: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default="en")
     balance_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=Decimal("0"), server_default="0"
     )

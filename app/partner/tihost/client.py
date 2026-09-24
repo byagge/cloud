@@ -34,12 +34,24 @@ class TihostClient:
         host = (parsed.hostname or "").lower()
         if parsed.scheme == "http" and host not in {"localhost", "127.0.0.1"}:
             raise RuntimeError("PARTNER_BASE_URL http only allowed for localhost")
+        api_key = (settings.partner_api_key or "").strip().strip('"').strip("'")
+        if not api_key or api_key in {"CHANGE_ME", "dev-key", "СЮДА_КЛЮЧ_TIHOST"}:
+            raise RuntimeError(
+                "PARTNER_API_KEY is empty or placeholder — set the real Tihost key in .env"
+            )
+        try:
+            api_key.encode("ascii")
+        except UnicodeEncodeError as e:
+            raise RuntimeError(
+                "PARTNER_API_KEY must be ASCII only (no Cyrillic/emoji). "
+                "Check /opt/cloud/.env — remove placeholder text."
+            ) from e
         self._settings = settings
         self._session_factory = session_factory
         self._client = httpx.AsyncClient(
             base_url=settings.partner_base_url.rstrip("/"),
             headers={
-                "Authorization": f"Bearer {settings.partner_api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
             },
             timeout=httpx.Timeout(
@@ -185,9 +197,13 @@ class TihostClient:
         )
 
     async def os_list(self, location: str, plan_id: str) -> list[OsImage]:
+        try:
+            plan_param: Any = int(plan_id)
+        except (TypeError, ValueError):
+            plan_param = plan_id
         return parsers.parse_os_list(
             await self._request(
-                "GET", "/catalog/os", params={"location": location, "plan_id": plan_id}
+                "GET", "/catalog/os", params={"location": location, "plan_id": plan_param}
             )
         )
 
@@ -201,11 +217,20 @@ class TihostClient:
         name: str,
         idem_key: str,
     ) -> CreatedServer:
+        # Tihost expects integer plan_id / os_id
+        try:
+            plan_val: Any = int(plan_id)
+        except (TypeError, ValueError):
+            plan_val = plan_id
+        try:
+            os_val: Any = int(os_id)
+        except (TypeError, ValueError):
+            os_val = os_id
         body = {
             "location": location,
-            "plan_id": plan_id,
-            "os_id": os_id,
-            "months": months,
+            "plan_id": plan_val,
+            "os_id": os_val,
+            "months": int(months),
             "name": name,
         }
         data = await self._request("POST", "/servers", json=body, idem_key=idem_key)
