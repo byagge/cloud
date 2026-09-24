@@ -14,9 +14,13 @@ def _fernet() -> Fernet:
     return Fernet(settings.ensure_fernet().encode())
 
 
-async def put_secret(redis: Redis, key: str, payload: dict[str, Any], ttl: int = 900) -> None:
+async def put_secret(redis: Redis, key: str, payload: dict[str, Any], ttl: int = 2_592_000) -> None:
+    """Store Fernet-encrypted secret. Default TTL 30 days (server passwords for SSH/AI)."""
     token = _fernet().encrypt(json.dumps(payload).encode()).decode()
-    await redis.setex(key, ttl, token)
+    if ttl and ttl > 0:
+        await redis.setex(key, ttl, token)
+    else:
+        await redis.set(key, token)
 
 
 async def get_secret(redis: Redis, key: str) -> dict[str, Any] | None:
@@ -25,3 +29,7 @@ async def get_secret(redis: Redis, key: str) -> dict[str, Any] | None:
         return None
     data = _fernet().decrypt(raw.encode() if isinstance(raw, str) else raw)
     return json.loads(data)
+
+
+async def delete_secret(redis: Redis, key: str) -> None:
+    await redis.delete(key)

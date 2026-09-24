@@ -24,7 +24,7 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
         redis,
         f"cred:{server.id}",
         {"login": server.login or "root", "password": pwd},
-        ttl=900,
+        ttl=2_592_000,
     )
     await enqueue_notify(
         session,

@@ -336,44 +336,110 @@ def servers_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def server_kb(server_id: int, actions: set[str], *, auto_renew: bool, cancelled: bool) -> InlineKeyboardMarkup:
+def server_kb(
+    server_id: int,
+    actions: set[str],
+    *,
+    auto_renew: bool,
+    cancelled: bool,
+    panel_url: str | None = None,
+    partner_id: str | None = None,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Manage keyboard — layout close to Tihost-style panel."""
+    from app.bot.texts import t
+
     rows: list[list[InlineKeyboardButton]] = []
+    if "renew" in actions:
+        rows.append(
+            [_ib(t("srv_btn_renew", lang), SrvCB(action="rn", server_id=server_id).pack(), "clock")]
+        )
+    if "monitor" in actions:
+        rows.append(
+            [_ib(t("srv_btn_monitor", lang), SrvCB(action="mon", server_id=server_id).pack(), "chart")]
+        )
+    # VNC / panel — external URL when possible
+    if partner_id and panel_url:
+        url = f"{panel_url.rstrip('/')}/servers/{partner_id}"
+        rows.append([_url(t("srv_btn_vnc", lang), url, "monitor")])
+    else:
+        rows.append(
+            [_ib(t("srv_btn_vnc", lang), SrvCB(action="vnc", server_id=server_id).pack(), "monitor")]
+        )
+    if "deploy" in actions:
+        rows.append(
+            [_ib(t("srv_btn_deploy", lang), SrvCB(action="dep", server_id=server_id).pack(), "cube")]
+        )
+    if "ai_fix" in actions:
+        rows.append(
+            [_ib(t("srv_btn_ai", lang), SrvCB(action="ai", server_id=server_id).pack(), "robot")]
+        )
+
     power_row: list[InlineKeyboardButton] = []
-    if "start" in actions:
-        power_row.append(_ib("Старт", SrvCB(action="pwr", server_id=server_id, arg="start").pack(), "up"))
     if "stop" in actions:
-        power_row.append(_ib("Стоп", SrvCB(action="pwr", server_id=server_id, arg="stop").pack(), "down"))
+        power_row.append(
+            _ib(t("srv_btn_stop", lang), SrvCB(action="pwr", server_id=server_id, arg="stop").pack(), "down")
+        )
+    if "start" in actions:
+        power_row.append(
+            _ib(t("srv_btn_start", lang), SrvCB(action="pwr", server_id=server_id, arg="start").pack(), "up")
+        )
     if "restart" in actions:
         power_row.append(
-            _ib("Рестарт", SrvCB(action="pwr", server_id=server_id, arg="restart").pack(), "robot")
+            _ib(
+                t("srv_btn_restart", lang),
+                SrvCB(action="pwr", server_id=server_id, arg="restart").pack(),
+                "robot",
+            )
         )
     if power_row:
         rows.append(power_row)
-    if "renew" in actions:
-        rows.append([_ib("Продлить", SrvCB(action="rn", server_id=server_id).pack(), "clock")])
+
     mid: list[InlineKeyboardButton] = []
-    if "password" in actions:
-        mid.append(_ib("Пароль", SrvCB(action="pw", server_id=server_id).pack(), "lock"))
     if "reinstall" in actions:
-        mid.append(_ib("ОС", SrvCB(action="ri", server_id=server_id).pack(), "term"))
+        mid.append(
+            _ib(t("srv_btn_os", lang), SrvCB(action="ri", server_id=server_id).pack(), "term")
+        )
+    if "password" in actions:
+        mid.append(
+            _ib(t("srv_btn_pw", lang), SrvCB(action="pw", server_id=server_id).pack(), "lock")
+        )
     if mid:
         rows.append(mid)
+
+    mid2: list[InlineKeyboardButton] = []
+    if "rename" in actions or True:
+        mid2.append(
+            _ib(t("srv_btn_rename", lang), SrvCB(action="nm", server_id=server_id).pack(), "pin")
+        )
+    mid2.append(
+        _ib(t("srv_btn_ip", lang), SrvCB(action="ip", server_id=server_id).pack(), "link")
+    )
+    rows.append(mid2)
+
     if "scripts" in actions:
-        rows.append([_ib("Скрипты", SrvCB(action="sc", server_id=server_id).pack(), "hammer")])
-    rows.append([_ib("Переименовать", SrvCB(action="nm", server_id=server_id).pack(), "pin")])
+        rows.append(
+            [_ib(t("srv_btn_script", lang), SrvCB(action="sc", server_id=server_id).pack(), "hammer")]
+        )
+    rows.append(
+        [_ib(t("srv_btn_upgrade", lang), SrvCB(action="upg", server_id=server_id).pack(), "up")]
+    )
+
     ar = "off" if auto_renew else "on"
     rows.append(
         [
             _ib(
-                "Автопродление: выкл" if auto_renew else "Автопродление: вкл",
+                t("srv_btn_autorenew_off", lang) if auto_renew else t("srv_btn_autorenew_on", lang),
                 SrvCB(action="ar", server_id=server_id, arg=ar).pack(),
-                "check" if not auto_renew else "block",
+                "block" if auto_renew else "check",
             )
         ]
     )
     if not cancelled:
-        rows.append([_ib("Отключить", SrvCB(action="rm", server_id=server_id).pack(), "block")])
-    rows.append([_ib("К списку", SrvCB(action="list", arg="0").pack(), "stack")])
+        rows.append(
+            [_ib(t("srv_btn_cancel", lang), SrvCB(action="rm", server_id=server_id).pack(), "block")]
+        )
+    rows.append([_ib(t("srv_btn_back", lang), SrvCB(action="list", arg="0").pack(), "down")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

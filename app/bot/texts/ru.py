@@ -108,14 +108,67 @@ TEXTS = {
     "pay_status_pending": "Пока не видно. Подождите 1–2 мин и проверьте снова.",
     "servers_empty": "{monitor} <b>Мои серверы</b>\n\nПока пусто. Купите первый сервер.",
     "servers_list": "{monitor} <b>Мои серверы</b> ({count})\n\nВыберите сервер:",
+    "srv_btn_renew": "⌛ Продлить аренду",
+    "srv_btn_monitor": "📊 Мониторинг",
+    "srv_btn_vnc": "🖥️ Консоль (VNC) на сайте",
+    "srv_btn_deploy": "🚀 Деплой проектов",
+    "srv_btn_ai": "🤖 ИИ по проекту",
+    "srv_btn_stop": "⛔ Выключить",
+    "srv_btn_start": "▶️ Включить",
+    "srv_btn_restart": "🔄 Перезапустить",
+    "srv_btn_os": "🔃 Сменить ОС",
+    "srv_btn_pw": "🔑 Сменить пароль",
+    "srv_btn_rename": "✏️ Сменить имя",
+    "srv_btn_ip": "🌐 Сменить IP",
+    "srv_btn_script": "▶️ Запустить скрипт",
+    "srv_btn_upgrade": "🛠️ Улучшить конфигурацию",
+    "srv_btn_autorenew_on": "✅ Включить автопродление",
+    "srv_btn_autorenew_off": "⛔ Выключить автопродление",
+    "srv_btn_cancel": "Отключить сервер",
+    "srv_btn_back": "◀️ Назад",
+    "srv_monitor": (
+        "📊 <b>Мониторинг</b>\n\n"
+        "├ Статус: {status}\n"
+        "├ IP: <code>{ip}</code>\n"
+        "├ CPU: {cpu}\n"
+        "├ RAM: {ram}\n"
+        "├ Диск: {disk}\n"
+        "╰ Синхронизация с панелью партнёра каждые несколько минут."
+    ),
+    "srv_ip_na": "Смена IP через API партнёра недоступна. Откройте панель Tihost.",
+    "srv_upgrade_na": "Апгрейд тарифа — в панели партнёра (кнопка Консоль/сайт).",
+    "srv_vnc_na": "Откройте панель партнёра для VNC.",
+    "agent_deploy_ask": (
+        "🚀 <b>Autodeploy</b>\n\n"
+        "Пришлите <b>zip</b> или файл проекта одним сообщением.\n"
+        "ИИ подключится по SSH, выберет каталог /opt/arix-apps/…, "
+        "развернёт без поломки других проектов и спросит токены, если нужны."
+    ),
+    "agent_ai_ask": (
+        "🤖 <b>ИИ по проекту</b>\n\n"
+        "Опишите проблему текстом (можно приложить фото).\n"
+        "ИИ зайдёт на сервер, посмотрит логи, сделает бэкап перед правками и починит."
+    ),
+    "agent_need_password": "Нет пароля SSH. Сначала нажмите «Сменить пароль» и дождитесь сообщения.",
+    "agent_need_gemini": "GEMINI_API_KEY не задан в .env на сервере.",
+    "agent_started": "ИИ агент запущен. Статус придёт сюда.",
+    "agent_ask_user": "❓ ИИ спрашивает:\n\n{question}\n\nОтветьте одним сообщением.",
+    "agent_done": "✅ {summary}",
+    "agent_fail": "❌ Агент: {err}",
     "server_card": (
-        "{dot} <b>{name}</b>\n\n"
-        "Статус: <b>{status}</b>\n"
+        "🖥️ <b>Сервер</b>\n\n"
+        "OC: {os}\n"
+        "Имя: <code>{name}</code>\n"
         "Локация: {location}\n"
-        "Тариф: {plan}\n"
-        "ОС: {os}\n"
+        "Статус: {dot} <b>{status}</b>\n"
+        "ID: <code>{sid}</code> · Partner: <code>{partner_id}</code>\n\n"
+        "<b>Ресурсы</b>\n"
+        "CPU: {cpu} · RAM: {ram} · Диск: {disk}\n"
+        "Тариф: {plan}\n\n"
+        "<b>Подключение</b>\n"
         "IP: <code>{ip}</code>\n"
         "Логин: <code>{login}</code>\n"
+        "Пароль: <code>{password}</code>\n\n"
         "До: <b>{expires}</b>\n"
         "Автопродление: {auto_renew}"
     ),

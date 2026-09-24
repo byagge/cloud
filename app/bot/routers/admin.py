@@ -343,6 +343,17 @@ async def admin_attach_apply(message: Message, state: FSMContext, db_user, admin
         await session.flush()
         if not remote.name:
             server.display_name = f"server-{server.id}"
+        # fetch SSH password into Redis so card/AI can use it
+        session.add(
+            Job(
+                kind="reset_password",
+                class_="manage",
+                payload={"server_id": server.id},
+                status="pending",
+                idem_key=f"attach-pw-{server.id}-{uuid4().hex[:8]}",
+                server_id=server.id,
+            )
+        )
         await _audit(
             session,
             actor_id=db_user.tg_id,

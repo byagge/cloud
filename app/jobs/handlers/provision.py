@@ -105,7 +105,7 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
                 "password": created.password,
                 "tg_id": None,
             },
-            ttl=900,
+            ttl=2_592_000,
         )
         await enqueue_notify(
             session,

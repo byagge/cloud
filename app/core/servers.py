@@ -55,15 +55,44 @@ STATUS_DOT: dict[DisplayStatus, str] = {
 }
 
 ACTIONS: dict[DisplayStatus, set[str]] = {
-    DisplayStatus.RUNNING: {"stop", "restart", "renew", "password", "reinstall", "scripts"},
-    DisplayStatus.STOPPED: {"start", "renew", "password", "reinstall"},
-    DisplayStatus.PROVISIONING: set(),
-    DisplayStatus.RESTARTING: {"renew"},
-    DisplayStatus.ERROR: {"stop", "restart", "renew", "password", "reinstall"},
-    DisplayStatus.EXPIRED: {"renew"},
-    DisplayStatus.FROZEN: set(),
+    DisplayStatus.RUNNING: {
+        "stop",
+        "restart",
+        "renew",
+        "password",
+        "reinstall",
+        "scripts",
+        "deploy",
+        "ai_fix",
+        "monitor",
+        "rename",
+    },
+    DisplayStatus.STOPPED: {
+        "start",
+        "renew",
+        "password",
+        "reinstall",
+        "deploy",
+        "ai_fix",
+        "monitor",
+        "rename",
+    },
+    DisplayStatus.PROVISIONING: {"monitor"},
+    DisplayStatus.RESTARTING: {"renew", "monitor"},
+    DisplayStatus.ERROR: {
+        "stop",
+        "restart",
+        "renew",
+        "password",
+        "reinstall",
+        "deploy",
+        "ai_fix",
+        "monitor",
+    },
+    DisplayStatus.EXPIRED: {"renew", "monitor"},
+    DisplayStatus.FROZEN: {"monitor"},
     DisplayStatus.MISSING: set(),
-    DisplayStatus.UNKNOWN: {"renew"},
+    DisplayStatus.UNKNOWN: {"renew", "monitor", "password"},
 }
 
 

@@ -118,7 +118,7 @@ def autorenew_text(lang: str = "ru") -> str:
     return decorate(t("autorenew_title", lang, clock="{clock}"))
 
 
-def server_card_text(user, server) -> str:
+def server_card_text(user, server, *, password: str | None = None) -> str:
     lang = user.lang or "ru"
     st = display_status(server)
     status_map = STATUS_RU if lang == "ru" else STATUS_EN
@@ -128,6 +128,8 @@ def server_card_text(user, server) -> str:
     except Exception:
         expires = "—"
     auto = ("да" if lang == "ru" else "yes") if server.auto_renew and not server.cancelled else ("нет" if lang == "ru" else "no")
+    pwd = password if password else ("— (нажмите «Сменить пароль»)" if lang == "ru" else "— (tap Change password)")
+    ram = f"{(server.ram_mb or 0) / 1024:.1f} GB" if server.ram_mb else "—"
     return decorate(
         t(
             "server_card",
@@ -140,6 +142,12 @@ def server_card_text(user, server) -> str:
             os=escape(server.os_label or "—"),
             ip=escape(str(server.ip or "—")),
             login=escape(str(server.login or "root")),
+            password=escape(str(pwd)),
+            cpu=server.cpu or "—",
+            ram=ram,
+            disk=f"{server.disk_gb} GB" if server.disk_gb else "—",
+            sid=server.id,
+            partner_id=escape(str(server.partner_id or "—")),
             expires=expires,
             auto_renew=auto,
         )

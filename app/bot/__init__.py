@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from aiogram import Dispatcher
 
-from app.bot.routers import admin, balance, buy, profile, servers, start
+from app.bot.routers import admin, agent, balance, buy, profile, servers, start
 
 
 def setup_routers(dp: Dispatcher) -> None:
+    dp.include_router(agent.router)  # agent Q&A before generic handlers
     dp.include_router(start.router)
     dp.include_router(profile.router)
     dp.include_router(buy.router)

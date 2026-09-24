@@ -79,8 +79,11 @@ async def list_servers(event: Message | CallbackQuery, db_user, callback_data: S
 
 
 @router.callback_query(SrvCB.filter(F.action == "open"))
-async def open_server(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+async def open_server(query: CallbackQuery, callback_data: SrvCB, db_user, redis) -> None:
     from html import escape
+
+    from app.config import get_settings
+    from app.core.secrets import get_secret
 
     factory = get_session_factory()
     async with factory() as session:
@@ -88,19 +91,33 @@ async def open_server(query: CallbackQuery, callback_data: SrvCB, db_user) -> No
         if not server or server.user_id != db_user.id:
             await query.answer(t("not_found", db_user.lang), show_alert=True)
             return
+        secret = await get_secret(redis, f"cred:{server.id}")
+        password = (secret or {}).get("password")
         try:
             st = display_status(server)
             actions = ACTIONS.get(st, set())
-            text = server_card_text(db_user, server)
+            text = server_card_text(db_user, server, password=password)
         except Exception:
             actions = set()
             name = escape(server.display_name or f"server-{server.id}")
-            text = f"<b>{name}</b>\nIP: <code>{escape(str(server.ip or '—'))}</code>"
+            text = (
+                f"<b>{name}</b>\nIP: <code>{escape(str(server.ip or '—'))}</code>\n"
+                f"Password: <code>{escape(str(password or '—'))}</code>"
+            )
         lang = db_user.lang or "ru"
+        settings = get_settings()
         await show_banner(
             query,
             text,
-            server_kb(server.id, actions, auto_renew=server.auto_renew, cancelled=server.cancelled),
+            server_kb(
+                server.id,
+                actions,
+                auto_renew=server.auto_renew,
+                cancelled=server.cancelled,
+                panel_url=settings.panel_url,
+                partner_id=server.partner_id,
+                lang=lang,
+            ),
             banner="servers",
             lang=lang,
         )
@@ -161,7 +178,7 @@ async def reset_pw(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
 
 
 @router.callback_query(SrvCB.filter(F.action == "ar"))
-async def auto_renew(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+async def auto_renew(query: CallbackQuery, callback_data: SrvCB, db_user, redis) -> None:
     factory = get_session_factory()
     async with factory() as session:
         server = await session.get(Server, callback_data.server_id)
@@ -172,11 +189,11 @@ async def auto_renew(query: CallbackQuery, callback_data: SrvCB, db_user) -> Non
         if server.auto_renew:
             server.cancelled = False
         await session.commit()
-    await open_server(query, callback_data, db_user)
+    await open_server(query, callback_data, db_user, redis)
 
 
 @router.callback_query(SrvCB.filter(F.action == "rm"))
-async def cancel_server(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+async def cancel_server(query: CallbackQuery, callback_data: SrvCB, db_user, redis) -> None:
     factory = get_session_factory()
     async with factory() as session:
         server = await session.get(Server, callback_data.server_id)
@@ -187,7 +204,7 @@ async def cancel_server(query: CallbackQuery, callback_data: SrvCB, db_user) -> 
         server.auto_renew = False
         await session.commit()
     await query.answer("Автопродление выключено")
-    await open_server(query, callback_data, db_user)
+    await open_server(query, callback_data, db_user, redis)
 
 
 @router.callback_query(SrvCB.filter(F.action == "rn"))
@@ -423,3 +440,53 @@ async def reinstall_go(query: CallbackQuery, callback_data: SrvCB, db_user) -> N
         )
         await session.commit()
     await query.answer("Переустановка в очереди", show_alert=True)
+
+@router.callback_query(SrvCB.filter(F.action == "mon"))
+async def monitor(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+    from app.core.servers import STATUS_EN, STATUS_RU
+
+    factory = get_session_factory()
+    async with factory() as session:
+        server = await session.get(Server, callback_data.server_id)
+        if not server or server.user_id != db_user.id:
+            await query.answer(t("not_found", db_user.lang), show_alert=True)
+            return
+        lang = db_user.lang or "ru"
+        st = display_status(server)
+        status_map = STATUS_RU if lang == "ru" else STATUS_EN
+        ram = f"{(server.ram_mb or 0) / 1024:.1f} GB" if server.ram_mb else "—"
+        text = decorate(
+            t(
+                "srv_monitor",
+                lang,
+                status=status_map.get(st, str(st)),
+                ip=server.ip or "—",
+                cpu=server.cpu or "—",
+                ram=ram,
+                disk=f"{server.disk_gb} GB" if server.disk_gb else "—",
+            )
+        )
+        from aiogram.types import InlineKeyboardMarkup
+        from app.bot.keyboards import _ib
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [_ib(t("srv_btn_back", lang), SrvCB(action="open", server_id=server.id).pack(), "down")]
+            ]
+        )
+    await show_banner(query, text, kb, banner="servers", lang=lang)
+
+
+@router.callback_query(SrvCB.filter(F.action == "vnc"))
+async def vnc_info(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+    await query.answer(t("srv_vnc_na", db_user.lang or "ru"), show_alert=True)
+
+
+@router.callback_query(SrvCB.filter(F.action == "ip"))
+async def change_ip(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+    await query.answer(t("srv_ip_na", db_user.lang or "ru"), show_alert=True)
+
+
+@router.callback_query(SrvCB.filter(F.action == "upg"))
+async def upgrade_plan(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+    await query.answer(t("srv_upgrade_na", db_user.lang or "ru"), show_alert=True)

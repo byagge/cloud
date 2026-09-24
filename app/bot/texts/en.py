@@ -108,14 +108,67 @@ TEXTS = {
     "pay_status_pending": "Not seen yet. Wait 1–2 min and check again.",
     "servers_empty": "{monitor} <b>My servers</b>\n\nEmpty. Buy your first server.",
     "servers_list": "{monitor} <b>My servers</b> ({count})\n\nPick a server:",
+    "srv_btn_renew": "⌛ Extend rental",
+    "srv_btn_monitor": "📊 Monitoring",
+    "srv_btn_vnc": "🖥️ Console (VNC) on site",
+    "srv_btn_deploy": "🚀 Deploy projects",
+    "srv_btn_ai": "🤖 AI for project",
+    "srv_btn_stop": "⛔ Power off",
+    "srv_btn_start": "▶️ Power on",
+    "srv_btn_restart": "🔄 Restart",
+    "srv_btn_os": "🔃 Change OS",
+    "srv_btn_pw": "🔑 Reset password",
+    "srv_btn_rename": "✏️ Rename",
+    "srv_btn_ip": "🌐 Change IP",
+    "srv_btn_script": "▶️ Run script",
+    "srv_btn_upgrade": "🛠️ Upgrade plan",
+    "srv_btn_autorenew_on": "✅ Enable auto-renew",
+    "srv_btn_autorenew_off": "⛔ Disable auto-renew",
+    "srv_btn_cancel": "Disconnect server",
+    "srv_btn_back": "◀️ Back",
+    "srv_monitor": (
+        "📊 <b>Monitoring</b>\n\n"
+        "├ Status: {status}\n"
+        "├ IP: <code>{ip}</code>\n"
+        "├ CPU: {cpu}\n"
+        "├ RAM: {ram}\n"
+        "├ Disk: {disk}\n"
+        "╰ Synced from partner panel every few minutes."
+    ),
+    "srv_ip_na": "IP change is not available via partner API. Use Tihost panel.",
+    "srv_upgrade_na": "Plan upgrade is in the partner panel.",
+    "srv_vnc_na": "Open the partner panel for VNC.",
+    "agent_deploy_ask": (
+        "🚀 <b>Autodeploy</b>\n\n"
+        "Send a <b>zip</b> or project file in one message.\n"
+        "AI will SSH in, use /opt/arix-apps/…, deploy without breaking other apps, "
+        "and ask for tokens if needed."
+    ),
+    "agent_ai_ask": (
+        "🤖 <b>AI for project</b>\n\n"
+        "Describe the problem (photo optional).\n"
+        "AI will inspect logs, backup before edits, and fix."
+    ),
+    "agent_need_password": "No SSH password. Tap «Reset password» first and wait for the DM.",
+    "agent_need_gemini": "GEMINI_API_KEY is missing in server .env.",
+    "agent_started": "AI agent started. Updates will arrive here.",
+    "agent_ask_user": "❓ AI asks:\n\n{question}\n\nReply in one message.",
+    "agent_done": "✅ {summary}",
+    "agent_fail": "❌ Agent: {err}",
     "server_card": (
-        "{dot} <b>{name}</b>\n\n"
-        "Status: <b>{status}</b>\n"
-        "Location: {location}\n"
-        "Plan: {plan}\n"
+        "🖥️ <b>Server</b>\n\n"
         "OS: {os}\n"
+        "Name: <code>{name}</code>\n"
+        "Location: {location}\n"
+        "Status: {dot} <b>{status}</b>\n"
+        "ID: <code>{sid}</code> · Partner: <code>{partner_id}</code>\n\n"
+        "<b>Resources</b>\n"
+        "CPU: {cpu} · RAM: {ram} · Disk: {disk}\n"
+        "Plan: {plan}\n\n"
+        "<b>Connection</b>\n"
         "IP: <code>{ip}</code>\n"
         "Login: <code>{login}</code>\n"
+        "Password: <code>{password}</code>\n\n"
         "Until: <b>{expires}</b>\n"
         "Auto-renew: {auto_renew}"
     ),

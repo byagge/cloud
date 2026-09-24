@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     support_url: str = "https://t.me/arxixx"
     terms_url: str = "https://example.com/terms"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    panel_url: str = "https://tihost.io"
     default_lang: str = "en"
     sentry_dsn: str = ""
 
