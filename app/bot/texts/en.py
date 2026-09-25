@@ -247,6 +247,10 @@ TEXTS = {
         "{robot} Order <b>#{order_id}</b> accepted. Creating server (1–3 min).\n"
         "Credentials will arrive here."
     ),
+    "order_create_failed": (
+        "Could not create the server. Please try again later.\n"
+        "Funds have been returned to your balance."
+    ),
     "order_stale": "Order expired",
     "need_funds": "Insufficient balance",
     "creds": (

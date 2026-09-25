@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ledger import LedgerKind, post_entry
 from app.core.secrets import put_secret
-from app.db.models import Job, Order, Server
+from app.db.models import Job, Order, Server, User
 from app.jobs.notify import enqueue_notify
-from app.jobs.results import Done, Fail, Review, Retry, Wait, now_utc
+from app.jobs.results import Done, Fail, Review, Retry, now_utc
 from app.partner.base import PartnerError, PartnerErrorCategory
 
 
@@ -44,21 +43,24 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
         )
     except PartnerError as e:
         if e.category == PartnerErrorCategory.WAIT_FUNDS:
-            order.status = "waiting_partner_funds"
+            # Partner unpaid — never leave the client charged / waiting forever
+            await _fail_create_for_user(session, order, reason="partner_funds")
             await enqueue_notify(
                 session,
                 user_id=None,
                 key="admin_partner_funds",
                 ref=str(order.id),
-                text=f"Не хватает средств партнёра для заказа #{order.id}",
+                text=(
+                    f"[admin] Partner funds low — order #{order.id} cancelled, "
+                    f"user refunded. Top up Tihost balance."
+                ),
                 admin=True,
             )
-            return Wait(after=timedelta(minutes=5), reason=e.code)
+            return Fail(reason="partner_funds")
         if e.category == PartnerErrorCategory.RETRY and e.ambiguous:
             return Retry(after=timedelta(seconds=30), reason=e.code)
         if e.category == PartnerErrorCategory.FATAL_REQUEST:
-            await _refund(session, order)
-            order.status = "failed"
+            await _fail_create_for_user(session, order, reason=e.code)
             return Fail(reason=e.code)
         raise
 
@@ -177,6 +179,7 @@ async def _adopt(session, redis, partner, order, job, found) -> Done | Review:
 
 
 async def _refund(session: AsyncSession, order: Order) -> None:
+    """Return charged balance to the user (idempotent via uniq_key)."""
     if order.price_usd and order.payment_mode == "balance":
         await post_entry(
             session,
@@ -189,3 +192,24 @@ async def _refund(session: AsyncSession, order: Order) -> None:
             reason="provision_failed",
         )
         order.status = "refunded"
+    elif order.status not in {"refunded", "cancelled", "active"}:
+        order.status = "failed"
+    order.finished_at = now_utc()
+
+
+async def _fail_create_for_user(session: AsyncSession, order: Order, *, reason: str) -> None:
+    """Refund + friendly client message. Never expose partner/internal errors."""
+    from app.bot.texts import t
+
+    await _refund(session, order)
+    user = await session.get(User, order.user_id)
+    lang = (user.lang if user else None) or "en"
+    await enqueue_notify(
+        session,
+        user_id=order.user_id,
+        key=f"order_create_failed:{order.id}",
+        ref=str(order.id),
+        text=t("order_create_failed", lang),
+        immediate=True,
+    )
+    order.last_error = (reason or "")[:200]
