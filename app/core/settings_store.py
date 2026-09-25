@@ -23,6 +23,8 @@ DEFAULTS: dict[str, object] = {
     "enabled_networks": [],
     "draft_ttl_min": 30,
     "invoice_ttl_min": 60,
+    # AI cost guards (weekly token counters in Redis; reset Monday 00:00 UTC)
+    "ai_weekly_token_cap": 400000,
     "default_renew_days": 30,
     "reminder_days": [3, 1],
     "stuck_order_min": 5,

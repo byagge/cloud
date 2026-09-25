@@ -36,9 +36,9 @@ class SrvCB(CallbackData, prefix="srv"):
 
 
 class AgentCB(CallbackData, prefix="ag"):
-    """AI agent session controls (stop / open / plan / deploy strategy)."""
+    """AI agent session controls (stop / open / plan / deploy strategy / beta)."""
 
-    action: str  # stop | open | plan_go | plan_no | dep_over | dep_side
+    action: str  # stop | open | plan_go | plan_no | dep_over | dep_side | beta_ok
     job_id: int = 0
     server_id: int = 0
 
@@ -688,6 +688,30 @@ def lang_kb(*, onboarding: bool = False, lang: str = "en") -> InlineKeyboardMark
     if not onboarding:
         rows.append(back_profile_row(lang))
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def agent_beta_kb(*, server_id: int, lang: str = "en") -> InlineKeyboardMarkup:
+    """One-time Beta disclaimer accept."""
+    from app.bot.texts import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _ib(
+                    t("btn_ai_beta_accept", lang),
+                    AgentCB(action="beta_ok", server_id=server_id).pack(),
+                    "check",
+                )
+            ],
+            [
+                _ib(
+                    t("srv_btn_back", lang),
+                    SrvCB(action="open", server_id=server_id).pack(),
+                    "down",
+                )
+            ],
+        ]
+    )
 
 
 def agent_control_kb(

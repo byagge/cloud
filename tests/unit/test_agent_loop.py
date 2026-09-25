@@ -29,8 +29,69 @@ def test_clip_result_truncates():
     big = {"stdout": "x" * 50_000, "stderr": "y" * 10_000, "exit_code": 0}
     clipped = _clip_result(big)
     raw = json.dumps(clipped)
-    assert len(raw) <= 14_000 + 100
+    assert len(raw) <= 3_600 + 100
     assert "truncated" in clipped["stdout"] or "preview" in clipped
+    assert len(clipped["stdout"]) < 2_000
+
+
+def test_compact_for_execute_drops_exploration():
+    from app.agent.loop import compact_for_execute
+
+    contents = [
+        types.Content(role="user", parts=[types.Part.from_text(text="nginx 502")]),
+        types.Content(
+            role="model",
+            parts=[types.Part.from_function_call(name="run_shell", args={"command": "ls"})],
+        ),
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_function_response(
+                    name="run_shell",
+                    response={"exit_code": 0, "stdout": "x" * 5000, "stderr": ""},
+                )
+            ],
+        ),
+    ]
+    out = compact_for_execute(
+        contents,
+        goal="nginx 502",
+        diagnosis="bad upstream",
+        steps=["fix conf", "reload"],
+        risk="low",
+    )
+    assert len(out) == 2
+    assert "APPROVED PLAN" in out[1].parts[0].text
+    assert "502" in out[0].parts[0].text or "nginx" in out[0].parts[0].text
+
+
+def test_compact_contents_keeps_head_and_tail():
+    from app.agent.loop import compact_contents
+
+    contents = [
+        types.Content(role="user", parts=[types.Part.from_text(text="goal")])
+    ]
+    for i in range(20):
+        contents.append(
+            types.Content(
+                role="model",
+                parts=[types.Part.from_function_call(name="run_shell", args={"command": f"echo {i}"})],
+            )
+        )
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_function_response(
+                        name="run_shell",
+                        response={"exit_code": 0, "stdout": ("blob" * 2000) + str(i), "stderr": ""},
+                    )
+                ],
+            )
+        )
+    out = compact_contents(contents, max_chars=8_000, keep_tail=4)
+    assert len(out) < len(contents)
+    assert out[0].parts[0].text == "goal"
 
 
 def test_serialize_roundtrip_text_and_tools():

@@ -13,3 +13,5 @@ python-dotenv>=1.0
 qrcode[pil]>=8.0
 asyncssh>=2.18
 google-genai>=1.0
+openai>=1.40
+anthropic>=0.40

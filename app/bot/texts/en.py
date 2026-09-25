@@ -112,7 +112,7 @@ TEXTS = {
     "srv_btn_monitor": "📊 Monitoring",
     "srv_btn_vnc": "🖥️ Console (VNC) on site",
     "srv_btn_deploy": "📦 Update project (zip)",
-    "srv_btn_ai": "🤖 AI: fix project",
+    "srv_btn_ai": "🤖 AI: fix project (Beta)",
     "srv_btn_stop": "⛔ Power off",
     "srv_btn_start": "▶️ Power on",
     "srv_btn_restart": "🔄 Restart",
@@ -149,11 +149,8 @@ TEXTS = {
         "During the run you get a <b>Stop</b> button."
     ),
     "agent_ai_ask": (
-        "🤖 <b>AI: fix existing project</b>\n\n"
-        "Describe what is broken (photo optional).\n"
-        "AI analyzes first, proposes a plan, then waits for your OK before writing.\n"
-        "Only patches projects already on the server — minimal edits + backups.\n\n"
-        "During the run you get a <b>Stop</b> button."
+        "🤖 <b>AI for project</b>\n\n"
+        "Describe what is broken (photo optional)."
     ),
     "agent_deploy_strategy_ask": (
         "📦 Archive saved.\n\n"
@@ -166,7 +163,20 @@ TEXTS = {
     "agent_plan_accepted": "⚙️ Starting work on the plan…",
     "agent_answer": "✅ {answer}\n\n💡 {suggestion}",
     "agent_plan_use_buttons": "Use the buttons under the plan (Work on plan / Stop).",
-    "agent_need_gemini": "GEMINI_API_KEY is missing in server .env.",
+    "agent_need_gemini": "No LLM API key configured (GEMINI / OPENAI / ANTHROPIC) in .env.",
+    "agent_oops": "Something went wrong. We already know about it and will fix it soon.",
+    "agent_beta_terms": (
+        "⚠️ <b>AI assistant (Beta)</b>\n\n"
+        "This is an experimental feature with limited usage.\n\n"
+        "• AI can make mistakes or suggest incomplete fixes\n"
+        "• Always review changes on the server before production use\n"
+        "• Do not paste secrets/passwords unless required\n"
+        "• Weekly token limit; resets every <b>Monday 00:00</b>\n\n"
+        "By continuing you accept Beta risks and usage limits."
+    ),
+    "btn_ai_beta_accept": "Got it, continue",
+    "agent_budget": "Limit reached. Quota resets on {reset}.",
+    "agent_budget_reset": "Monday 00:00",
     "agent_started": (
         "🛠 <b>AI session started</b>\n\n"
         "• Works only on existing projects\n"

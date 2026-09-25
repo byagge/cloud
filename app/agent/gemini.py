@@ -5,10 +5,15 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from app.agent.errors import ProviderQuotaError, is_quota_error
+from app.agent.tools_def import TOOLS_BY_PHASE, max_output_tokens_for_phase, tools_for_phase
 from app.config import get_settings
 from app.logging import get_logger
 
 log = get_logger("agent.gemini")
+
+# Re-export for callers that imported TOOLS_BY_PHASE from here
+__all__ = ["GeminiAgent", "TOOLS_BY_PHASE"]
 
 _TYPE_MAP = {
     "object": "OBJECT",
@@ -23,113 +28,6 @@ _RETRY_ATTEMPTS = 5
 _RETRY_BASE_SEC = 1.0
 _RETRY_MAX_SEC = 30.0
 
-_SHELL = {
-    "name": "run_shell",
-    "description": (
-        "Run a shell command on the VPS as root over SSH. "
-        "Prefer non-interactive flags. Never print secrets."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "command": {"type": "string"},
-            "timeout_sec": {"type": "integer"},
-        },
-        "required": ["command"],
-    },
-}
-_WRITE = {
-    "name": "write_file",
-    "description": "Write text content to a file on the VPS (creates parent dirs).",
-    "parameters": {
-        "type": "object",
-        "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-        "required": ["path", "content"],
-    },
-}
-_READ = {
-    "name": "read_file",
-    "description": "Read a text file from the VPS (truncated).",
-    "parameters": {
-        "type": "object",
-        "properties": {"path": {"type": "string"}},
-        "required": ["path"],
-    },
-}
-_BACKUP = {
-    "name": "backup_path",
-    "description": "Timestamped backup before modifying a file/dir. ALWAYS before edits.",
-    "parameters": {
-        "type": "object",
-        "properties": {"path": {"type": "string"}},
-        "required": ["path"],
-    },
-}
-_ASK = {
-    "name": "ask_user",
-    "description": "Ask the user one clear question. Call ALONE.",
-    "parameters": {
-        "type": "object",
-        "properties": {"question": {"type": "string"}},
-        "required": ["question"],
-    },
-}
-_FINISH = {
-    "name": "finish",
-    "description": "Finish after executing the approved plan. Call ALONE.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "summary": {"type": "string"},
-            "ok": {"type": "boolean"},
-        },
-        "required": ["summary"],
-    },
-}
-_ANSWER = {
-    "name": "answer_only",
-    "description": (
-        "Give a diagnostic answer / advice WITHOUT making changes. Call ALONE. "
-        "Use when logs/explanation is enough or the fix would be too large."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "answer": {"type": "string", "description": "Clear answer for the user"},
-            "suggestion": {"type": "string", "description": "Optional next step advice"},
-        },
-        "required": ["answer"],
-    },
-}
-_PLAN = {
-    "name": "propose_plan",
-    "description": (
-        "Propose a SMALL fix plan for an existing project. Call ALONE. "
-        "User must accept before any write. 2–8 concrete steps."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "diagnosis": {"type": "string"},
-            "steps": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Ordered short steps",
-            },
-            "risk": {"type": "string", "description": "low or medium"},
-        },
-        "required": ["diagnosis", "steps"],
-    },
-}
-
-TOOLS_BY_PHASE: dict[str, list[dict[str, Any]]] = {
-    "analyze": [_SHELL, _READ, _ASK, _ANSWER, _PLAN],
-    "execute": [_SHELL, _READ, _WRITE, _BACKUP, _ASK, _FINISH],
-    "deploy": [_SHELL, _READ, _WRITE, _BACKUP, _ASK, _FINISH],
-    # legacy
-    "support": [_SHELL, _READ, _ASK, _ANSWER, _PLAN],
-}
-
 
 def _schema_type(types_mod: Any, raw: str) -> Any:
     name = _TYPE_MAP.get((raw or "string").lower(), "STRING")
@@ -139,7 +37,7 @@ def _schema_type(types_mod: Any, raw: str) -> Any:
 def _declarations(phase: str) -> list[Any]:
     from google.genai import types
 
-    tools = TOOLS_BY_PHASE.get(phase) or TOOLS_BY_PHASE["analyze"]
+    tools = tools_for_phase(phase)
     out = []
     for t in tools:
         params = t["parameters"]
@@ -171,6 +69,9 @@ def _declarations(phase: str) -> list[Any]:
 
 
 def _is_retryable(exc: BaseException) -> bool:
+    # Hard billing/quota exhaustion must not be retried — surface to failover / oops UX.
+    if is_quota_error(exc):
+        return False
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
         return True
     name = type(exc).__name__.lower()
@@ -179,10 +80,11 @@ def _is_retryable(exc: BaseException) -> bool:
         return True
     code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     if code in (429, 503, 502, 500):
+        # 429 without quota wording = soft rate limit → retry
         return True
-    if "429" in msg or "503" in msg or "resource_exhausted" in msg:
+    if "503" in msg:
         return True
-    if "rate" in msg and "limit" in msg:
+    if "rate" in msg and "limit" in msg and "quota" not in msg:
         return True
     if "unavailable" in msg or "overloaded" in msg:
         return True
@@ -190,6 +92,8 @@ def _is_retryable(exc: BaseException) -> bool:
 
 
 class GeminiAgent:
+    name = "gemini"
+
     def __init__(
         self,
         *,
@@ -201,6 +105,7 @@ class GeminiAgent:
         self.api_key = (api_key or settings.gemini_api_key or "").strip()
         self.model = model or settings.gemini_model or "gemini-2.0-flash"
         self.phase = phase if phase in TOOLS_BY_PHASE else "analyze"
+        self._max_out = max_output_tokens_for_phase(self.phase)
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY missing")
         from google import genai
@@ -215,6 +120,7 @@ class GeminiAgent:
             "system_instruction": system,
             "tools": [types.Tool(function_declarations=self._decls)],
             "temperature": 0.2,
+            "max_output_tokens": self._max_out,
         }
         try:
             config_kwargs["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
@@ -239,6 +145,8 @@ class GeminiAgent:
                 return await asyncio.to_thread(self._chat_sync, contents, system=system)
             except Exception as e:
                 last = e
+                if is_quota_error(e):
+                    raise ProviderQuotaError(self.name, str(e)) from e
                 if attempt + 1 >= _RETRY_ATTEMPTS or not _is_retryable(e):
                     raise
                 delay = min(_RETRY_MAX_SEC, _RETRY_BASE_SEC * (2**attempt))

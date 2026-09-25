@@ -13,8 +13,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
+from app.agent.budget import check_can_start, has_beta_ack, set_beta_ack
+from app.agent.llm import has_any_llm_key
 from app.agent.topics import ensure_agent_topic
-from app.bot.keyboards import AgentCB, SrvCB, agent_control_kb, deploy_strategy_kb
+from app.bot.keyboards import AgentCB, SrvCB, agent_beta_kb, agent_control_kb, deploy_strategy_kb
 from app.bot.render import show_banner
 from app.bot.texts import t
 from app.bot.ui.screens import decorate
@@ -88,8 +90,18 @@ async def _active_agent_job(session, server_id: int) -> Job | None:
 async def _guard_ready(query: CallbackQuery, db_user, redis, server_id: int) -> bool:
     lang = db_user.lang or "en"
     settings = get_settings()
-    if not (settings.gemini_api_key or "").strip():
+    if not has_any_llm_key(settings):
         await query.answer(t("agent_need_gemini", lang), show_alert=True)
+        return False
+    budget = await check_can_start(redis, db_user.id)
+    if not budget.ok:
+        if budget.reason == "user_busy":
+            await query.answer(t("agent_already_running", lang), show_alert=True)
+        else:
+            await query.answer(
+                t("agent_budget", lang, reset=t("agent_budget_reset", lang)),
+                show_alert=True,
+            )
         return False
     if await redis.get(f"agent:wait:{db_user.id}"):
         await query.answer(t("agent_busy", lang), show_alert=True)
@@ -133,10 +145,39 @@ async def ai_start(query: CallbackQuery, callback_data: SrvCB, state: FSMContext
     lang = db_user.lang or "en"
     if not await _guard_ready(query, db_user, redis, callback_data.server_id):
         return
+    # One-time Beta disclaimer (like terms)
+    if not await has_beta_ack(redis, db_user.id):
+        text = decorate(t("agent_beta_terms", lang))
+        await show_banner(
+            query,
+            text,
+            agent_beta_kb(server_id=callback_data.server_id, lang=lang),
+            banner="servers",
+            lang=lang,
+        )
+        await query.answer()
+        return
     await state.set_state(AgentSupport.waiting_problem)
     await state.update_data(agent_server_id=callback_data.server_id)
     text = decorate(t("agent_ai_ask", lang))
     await show_banner(query, text, _back_kb(callback_data.server_id, lang), banner="servers", lang=lang)
+    await query.answer()
+
+
+@router.callback_query(AgentCB.filter(F.action == "beta_ok"))
+async def ai_beta_accept(query: CallbackQuery, callback_data: AgentCB, state: FSMContext, db_user, redis) -> None:
+    lang = db_user.lang or "en"
+    server_id = int(callback_data.server_id or 0)
+    if not server_id:
+        await query.answer(t("not_found", lang), show_alert=True)
+        return
+    if not await _guard_ready(query, db_user, redis, server_id):
+        return
+    await set_beta_ack(redis, db_user.id)
+    await state.set_state(AgentSupport.waiting_problem)
+    await state.update_data(agent_server_id=server_id)
+    text = decorate(t("agent_ai_ask", lang))
+    await show_banner(query, text, _back_kb(server_id, lang), banner="servers", lang=lang)
     await query.answer()
 
 

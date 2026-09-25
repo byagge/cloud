@@ -1,4 +1,4 @@
-"""Agent job: analyze → plan → execute + deploy strategy over SSH + Gemini."""
+"""Agent job: analyze → plan → execute + deploy strategy over SSH + LLM."""
 
 from __future__ import annotations
 
@@ -25,7 +25,18 @@ from app.agent import (
     run_agent,
     serialize_contents,
 )
-from app.agent.gemini import GeminiAgent
+from app.agent.errors import OOPS_SENTINEL, is_quota_error
+from app.agent.budget import (
+    BUDGET_SENTINEL,
+    acquire_user_lock,
+    add_tokens,
+    check_can_start,
+    check_run_budget,
+    release_user_lock,
+    tokens_from_response,
+)
+from app.agent.llm import AgentLLM, has_any_llm_key
+from app.agent.loop import compact_for_execute
 from app.agent.progress import ProgressBoard
 from app.config import get_settings
 from app.core.secrets import get_secret
@@ -61,6 +72,56 @@ def _phase_from_payload(payload: dict, mode: str) -> str:
     return "analyze"
 
 
+def _is_oops_error(err: str) -> bool:
+    if err == OOPS_SENTINEL:
+        return True
+    return is_quota_error(Exception(err or ""))
+
+
+def _is_budget_error(err: str) -> bool:
+    return (err or "").startswith(BUDGET_SENTINEL)
+
+
+async def _notify_admin_llm(
+    session: AsyncSession,
+    *,
+    job_id: int,
+    server_id: int | None,
+    user_id: int,
+    detail: str,
+) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    text = (
+        f"⚠️ LLM quota / provider failure\n"
+        f"job={job_id} server={server_id} user={user_id}\n"
+        f"{(detail or '')[:800]}"
+    )
+    await enqueue_notify(
+        session,
+        user_id=None,
+        key=f"admin_llm_oops:{job_id}:{uuid.uuid4().hex[:8]}",
+        ref=str(job_id),
+        text=text,
+        admin=True,
+        immediate=True,
+    )
+    # Fallback when ADMIN_CHAT_ID is empty: DM the owner
+    if not settings.admin_chat_id and settings.owner_tg_id:
+        try:
+            from aiogram import Bot
+
+            if (settings.bot_token or "").strip():
+                bot = Bot(token=settings.bot_token)
+                try:
+                    await bot.send_message(settings.owner_tg_id, text)
+                finally:
+                    await bot.session.close()
+        except Exception:
+            log.exception("admin_llm_owner_fallback_failed")
+
+
 async def _notify_fail(
     session: AsyncSession,
     *,
@@ -76,12 +137,27 @@ async def _notify_fail(
     payload: dict = {"server_id": server_id, "agent_job_id": job_id, "lang": lang, "show_stop": False}
     if thread_id:
         payload["message_thread_id"] = thread_id
+
+    if _is_oops_error(err):
+        await _notify_admin_llm(
+            session,
+            job_id=job_id,
+            server_id=server_id,
+            user_id=user_id,
+            detail=err if err != OOPS_SENTINEL else "PROVIDER_OOPS / quota exhausted",
+        )
+        text = t("agent_oops", lang)
+    elif _is_budget_error(err):
+        text = t("agent_budget", lang, reset=t("agent_budget_reset", lang))
+    else:
+        text = t("agent_fail", lang, err=_esc(err))
+
     await enqueue_notify(
         session,
         user_id=user_id,
         key=f"agent_fail:{job_id}:{uuid.uuid4().hex[:8]}",
         ref=str(job_id),
-        text=t("agent_fail", lang, err=_esc(err)),
+        text=text,
         payload=payload,
         immediate=True,
     )
@@ -149,16 +225,43 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
     lang = (user.lang if user else None) or "en"
 
     settings = get_settings()
-    if not (settings.gemini_api_key or "").strip():
+    if not has_any_llm_key(settings):
         await _notify_fail(
             session,
             user_id=server.user_id,
             job_id=job.id,
             lang=lang,
-            err="GEMINI_API_KEY missing",
+            err="No LLM API keys (GEMINI/OPENAI/ANTHROPIC)",
             server_id=server.id,
         )
-        return Fail(reason="gemini_missing")
+        return Fail(reason="llm_missing")
+
+    # Per-user AI spend / concurrency guard (before SSH / LLM)
+    budget = await check_can_start(redis, server.user_id)
+    if not budget.ok:
+        lock_cur = await redis.get(f"ai:user_lock:{server.user_id}")
+        same_job = lock_cur is not None and str(lock_cur) == str(job.id)
+        if budget.reason == "user_busy" and not same_job:
+            await enqueue_notify(
+                session,
+                user_id=server.user_id,
+                key=f"agent_user_busy:{job.id}",
+                ref=str(job.id),
+                text=t("agent_already_running", lang),
+                payload={"server_id": server.id},
+                immediate=True,
+            )
+            return Wait(after=timedelta(minutes=2), reason="ai_user_busy")
+        if budget.reason == "week_tokens" and not same_job:
+            await _notify_fail(
+                session,
+                user_id=server.user_id,
+                job_id=job.id,
+                lang=lang,
+                err=f"{BUDGET_SENTINEL}:week_tokens",
+                server_id=server.id,
+            )
+            return Fail(reason="ai_budget")
 
     secret = await get_secret(redis, f"cred:{server.id}")
     if not secret or not secret.get("password"):
@@ -220,6 +323,31 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
             )
             return Wait(after=timedelta(minutes=2), reason="agent_locked")
 
+    # Global per-user lock (one AI session across all servers)
+    got_user_lock = await acquire_user_lock(redis, server.user_id, job.id, ttl=LOCK_TTL)
+    if not got_user_lock:
+        cur_u = await redis.get(f"ai:user_lock:{server.user_id}")
+        if cur_u is not None and str(cur_u) == str(job.id):
+            got_user_lock = True
+        else:
+            await enqueue_notify(
+                session,
+                user_id=server.user_id,
+                key=f"agent_user_busy:{job.id}",
+                ref=str(job.id),
+                text=t("agent_already_running", lang),
+                payload={"server_id": server.id},
+                immediate=True,
+            )
+            # release server lock we just took
+            try:
+                cur = await redis.get(lock_key)
+                if cur is not None and str(cur) == str(job.id):
+                    await redis.delete(lock_key)
+            except Exception:
+                pass
+            return Wait(after=timedelta(minutes=2), reason="ai_user_busy")
+
     hold_lock = False
     try:
         result = await _run_locked(
@@ -240,6 +368,7 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
         )
         if isinstance(result, Wait) and result.reason in _WAIT_HOLD:
             await redis.set(lock_key, str(job.id), ex=LOCK_TTL)
+            await redis.set(f"ai:user_lock:{server.user_id}", str(job.id), ex=LOCK_TTL)
             hold_lock = True
         return result
     finally:
@@ -250,6 +379,7 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
                     await redis.delete(lock_key)
             except Exception:
                 log.exception("agent_lock_release_failed", server_id=server.id)
+            await release_user_lock(redis, server.user_id, job.id)
 
 
 async def _run_locked(
@@ -325,6 +455,18 @@ async def _run_locked(
         payload["phase"] = "execute"
         payload["mode"] = "execute"
         job.payload = payload
+        # Drop analyze exploration from context — biggest token saver on execute
+        if contents is not None:
+            steps = saved_state.get("plan_steps") or payload.get("plan_steps") or []
+            diagnosis = saved_state.get("plan_diagnosis") or payload.get("plan_diagnosis") or ""
+            risk = saved_state.get("plan_risk") or payload.get("plan_risk") or "low"
+            contents = compact_for_execute(
+                contents,
+                goal=goal,
+                diagnosis=str(diagnosis),
+                steps=[str(s) for s in steps],
+                risk=str(risk),
+            )
 
     # still waiting for user / plan ack — don't burn Gemini calls
     if await redis.get(wait_key) and not answer and not plan_accepted:
@@ -390,28 +532,25 @@ async def _run_locked(
         extra += f"Deploy strategy chosen by user: {deploy_strategy}\n"
 
     if phase == "execute":
-        steps = saved_state.get("plan_steps") or payload.get("plan_steps") or []
-        diagnosis = saved_state.get("plan_diagnosis") or payload.get("plan_diagnosis") or ""
-        if steps:
-            extra += "APPROVED PLAN — execute these steps:\n"
-            for i, s in enumerate(steps, 1):
-                extra += f"{i}. {s}\n"
-            if diagnosis:
-                extra += f"Diagnosis: {diagnosis}\n"
-            risk = saved_state.get("plan_risk") or payload.get("plan_risk") or ""
-            if risk:
-                extra += f"Risk: {risk}\n"
+        # Plan already injected via compact_for_execute when accepting;
+        # only add a short reminder if we somehow still have raw contents.
+        if contents is None:
+            steps = saved_state.get("plan_steps") or payload.get("plan_steps") or []
+            diagnosis = saved_state.get("plan_diagnosis") or payload.get("plan_diagnosis") or ""
+            if steps:
+                extra += "APPROVED PLAN:\n"
+                for i, s in enumerate(steps, 1):
+                    extra += f"{i}. {s}\n"
+                if diagnosis:
+                    extra += f"Diagnosis: {diagnosis}\n"
 
-    extra += (
-        "CONSTRAINT: Only patch/update EXISTING projects on this VPS. "
-        "Do not create greenfield apps from scratch.\n"
-    )
+    # CONSTRAINT already in system prompt — no need to repeat every run
 
     login = secret.get("login") or server.login or "root"
     password = secret["password"]
 
     try:
-        gemini = GeminiAgent(phase=phase)
+        llm = AgentLLM(phase=phase)
     except Exception as e:
         await _notify_fail(
             session,
@@ -449,7 +588,7 @@ async def _run_locked(
 
             if local_photo and Path(local_photo).is_file():
                 try:
-                    image_bytes = Path(local_photo).read_bytes()[:4_000_000]
+                    image_bytes = Path(local_photo).read_bytes()[:800_000]
                 except Exception:
                     log.exception("read_photo_failed")
 
@@ -528,9 +667,36 @@ async def _run_locked(
                 )
                 await board.ensure()
 
+            async def _on_llm_usage(response, *, step: int, phase: str, contents, **_kw):
+                from app.agent.loop import _contents_chars
+
+                if response is None:
+                    st = await check_run_budget(redis, server.user_id, job.id)
+                    return st.ok
+                chars = 0
+                try:
+                    chars = _contents_chars(contents or [])
+                except Exception:
+                    chars = 0
+                tok = tokens_from_response(response, prompt_chars=chars)
+                if image_bytes and step == 0:
+                    tok += 800  # rough vision surcharge
+                st = await add_tokens(redis, server.user_id, tokens=tok)
+                log.info(
+                    "ai_tokens",
+                    user_id=server.user_id,
+                    job_id=job.id,
+                    tokens=tok,
+                    used=st.used_tokens,
+                    cap=st.weekly_cap,
+                    step=step,
+                    phase=phase,
+                )
+                return st.ok
+
             result = await run_agent(
                 ssh=ssh,
-                gemini=gemini,
+                gemini=llm,
                 mode=phase,
                 user_goal=goal,
                 extra_context=extra,
@@ -539,12 +705,17 @@ async def _run_locked(
                 should_cancel=_cancelled,
                 progress=board,
                 lang=lang,
+                on_llm_usage=_on_llm_usage,
             )
         except Exception as e:
+            from app.agent.errors import OOPS_SENTINEL, is_quota_error
+
             log.exception("agent_run_failed", job_id=job.id)
+            err = OOPS_SENTINEL if is_quota_error(e) else str(e)[:300]
             if board is not None:
                 try:
-                    await board.finish(str(e)[:200], ok=False)
+                    msg = t("agent_oops", lang) if err == OOPS_SENTINEL else err[:200]
+                    await board.finish(msg[:200], ok=False)
                 except Exception:
                     pass
             await _notify_fail(
@@ -552,11 +723,11 @@ async def _run_locked(
                 user_id=server.user_id,
                 job_id=job.id,
                 lang=lang,
-                err=str(e)[:300],
+                err=err,
                 server_id=server.id,
                 thread_id=thread_id,
             )
-            return Review(reason=str(e)[:300])
+            return Review(reason=("provider_oops" if err == OOPS_SENTINEL else err[:300]))
         finally:
             if ssh is not None:
                 try:
@@ -788,22 +959,25 @@ async def _handle_agent_result(
     err = result.error if isinstance(result, AgentFail) else "unknown"
     if board is not None:
         try:
-            await board.finish(err[:200], ok=False)
+            if _is_oops_error(err):
+                finish_msg = t("agent_oops", lang)
+            elif _is_budget_error(err):
+                finish_msg = t("agent_budget", lang, reset=t("agent_budget_reset", lang))
+            else:
+                finish_msg = err[:200]
+            await board.finish(finish_msg[:200], ok=False)
         except Exception:
             pass
-    await enqueue_notify(
+    await _notify_fail(
         session,
         user_id=server.user_id,
-        key=f"agent_fail:{job.id}:{uuid.uuid4().hex[:8]}",
-        ref=str(job.id),
-        text=t("agent_fail", lang, err=_esc(err)),
-        payload=_ui_payload(
-            job_id=job.id,
-            server_id=server.id,
-            lang=lang,
-            thread_id=thread_id,
-            show_stop=False,
-        ),
-        immediate=True,
+        job_id=job.id,
+        lang=lang,
+        err=err,
+        server_id=server.id,
+        thread_id=thread_id,
     )
-    return Fail(reason=err[:200])
+    reason = "provider_oops" if _is_oops_error(err) else (
+        "ai_budget" if _is_budget_error(err) else err[:200]
+    )
+    return Fail(reason=reason)
