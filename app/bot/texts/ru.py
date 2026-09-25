@@ -117,7 +117,10 @@ TEXTS = {
     "srv_btn_start": "▶️ Включить",
     "srv_btn_restart": "🔄 Перезапустить",
     "srv_btn_os": "🔃 Сменить ОС",
-    "srv_btn_pw": "🔑 Сменить пароль",
+    "srv_btn_pw": "🔑 Обновить пароль",
+    "srv_pw_queued": "Запросили пароль у провайдера. Откройте сервер через ~20 сек.",
+    "srv_pw_loading": "загрузка…",
+    "srv_pw_missing": "—",
     "srv_btn_rename": "✏️ Сменить имя",
     "srv_btn_ip": "🌐 Сменить IP",
     "srv_btn_script": "▶️ Запустить скрипт",
@@ -186,6 +189,10 @@ TEXTS = {
     "agent_stopping": "Останавливаем ИИ…",
     "server_card": (
         "🖥️ <b>Сервер</b>\n\n"
+        "<b>Подключение</b>\n"
+        "IP: <code>{ip}</code>\n"
+        "Логин: <code>{login}</code>\n"
+        "Пароль: <code>{password}</code>\n\n"
         "OC: {os}\n"
         "Имя: <code>{name}</code>\n"
         "Локация: {location}\n"
@@ -194,10 +201,6 @@ TEXTS = {
         "<b>Ресурсы</b>\n"
         "CPU: {cpu} · RAM: {ram} · Диск: {disk}\n"
         "Тариф: {plan}\n\n"
-        "<b>Подключение</b>\n"
-        "IP: <code>{ip}</code>\n"
-        "Логин: <code>{login}</code>\n"
-        "Пароль: <code>{password}</code>\n\n"
         "До: <b>{expires}</b>\n"
         "Автопродление: {auto_renew}"
     ),

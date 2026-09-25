@@ -115,6 +115,19 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
             text="creds",
             payload={"server_id": server.id},
         )
+    else:
+        # Provider did not return password on create — fetch automatically
+        session.add(
+            Job(
+                kind="reset_password",
+                class_="manage",
+                payload={"server_id": server.id, "silent": False},
+                status="pending",
+                idem_key=f"job-pw-create-{job.id}",
+                server_id=server.id,
+                order_id=order.id,
+            )
+        )
 
     await enqueue_notify(
         session,

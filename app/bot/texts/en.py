@@ -117,7 +117,10 @@ TEXTS = {
     "srv_btn_start": "▶️ Power on",
     "srv_btn_restart": "🔄 Restart",
     "srv_btn_os": "🔃 Change OS",
-    "srv_btn_pw": "🔑 Reset password",
+    "srv_btn_pw": "🔑 Refresh password",
+    "srv_pw_queued": "Password requested from provider. Re-open the server in ~20s.",
+    "srv_pw_loading": "loading…",
+    "srv_pw_missing": "—",
     "srv_btn_rename": "✏️ Rename",
     "srv_btn_ip": "🌐 Change IP",
     "srv_btn_script": "▶️ Run script",
@@ -186,6 +189,10 @@ TEXTS = {
     "agent_stopping": "Stopping AI…",
     "server_card": (
         "🖥️ <b>Server</b>\n\n"
+        "<b>Connection</b>\n"
+        "IP: <code>{ip}</code>\n"
+        "Login: <code>{login}</code>\n"
+        "Password: <code>{password}</code>\n\n"
         "OS: {os}\n"
         "Name: <code>{name}</code>\n"
         "Location: {location}\n"
@@ -194,10 +201,6 @@ TEXTS = {
         "<b>Resources</b>\n"
         "CPU: {cpu} · RAM: {ram} · Disk: {disk}\n"
         "Plan: {plan}\n\n"
-        "<b>Connection</b>\n"
-        "IP: <code>{ip}</code>\n"
-        "Login: <code>{login}</code>\n"
-        "Password: <code>{password}</code>\n\n"
         "Until: <b>{expires}</b>\n"
         "Auto-renew: {auto_renew}"
     ),

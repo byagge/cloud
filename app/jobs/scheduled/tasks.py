@@ -124,6 +124,53 @@ async def sync_servers(session: AsyncSession, redis) -> None:
                     f"Логин: <code>{server.login or 'root'}</code>"
                 ),
             )
+            # Ensure SSH password is cached for the panel card
+            from app.core.secrets import get_secret
+            from app.db.models import Job
+
+            if not await get_secret(redis, f"cred:{server.id}"):
+                session.add(
+                    Job(
+                        kind="reset_password",
+                        class_="manage",
+                        payload={"server_id": server.id, "silent": False},
+                        status="pending",
+                        idem_key=f"ready-pw-{server.id}",
+                        server_id=server.id,
+                    )
+                )
+
+        # Backfill missing passwords for already-ready servers (once per hour flag)
+        try:
+            from app.core.secrets import get_secret
+            from app.db.models import Job
+
+            if server.partner_id and server.ip and not await get_secret(redis, f"cred:{server.id}"):
+                flag = f"cred:syncfetch:{server.id}"
+                if not await redis.get(flag):
+                    pending = await session.scalar(
+                        select(Job)
+                        .where(
+                            Job.server_id == server.id,
+                            Job.kind == "reset_password",
+                            Job.status.in_(("pending", "running")),
+                        )
+                        .limit(1)
+                    )
+                    if pending is None:
+                        session.add(
+                            Job(
+                                kind="reset_password",
+                                class_="manage",
+                                payload={"server_id": server.id, "silent": True},
+                                status="pending",
+                                idem_key=f"sync-pw-{server.id}-{int(now_utc().timestamp()) // 3600}",
+                                server_id=server.id,
+                            )
+                        )
+                    await redis.set(flag, "1", ex=3600)
+        except Exception:
+            log.exception("sync_password_backfill_failed", server_id=server.id)
 
         if server.reinstall_pending and (remote_s.state or "").lower() in {"running", "active"}:
             from app.db.models import Job

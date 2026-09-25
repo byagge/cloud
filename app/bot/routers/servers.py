@@ -84,22 +84,52 @@ async def open_server(
 ) -> None:
     from html import escape
 
+    from app.bot.panel_card import remember_server_card
     from app.config import get_settings
     from app.core.secrets import get_secret
 
     # Clear agent deploy/support FSM when user presses Back to server card
-    # (state is injected by aiogram on callback path; direct callers like auto_renew omit it)
     if state is not None:
         await state.clear()
 
     factory = get_session_factory()
+    password: str | None = None
+    fetching = False
     async with factory() as session:
         server = await session.get(Server, callback_data.server_id)
         if not server or server.user_id != db_user.id:
             await query.answer(t("not_found", db_user.lang), show_alert=True)
             return
         secret = await get_secret(redis, f"cred:{server.id}")
-        password = (secret or {}).get("password")
+        password = (secret or {}).get("password") if secret else None
+        # Silently request password from provider — user never presses a button
+        if (not password) and server.partner_id:
+            fetching = True
+            flag = f"cred:fetch:{server.id}"
+            if not await redis.get(flag):
+                pending = await session.scalar(
+                    select(Job)
+                    .where(
+                        Job.server_id == server.id,
+                        Job.kind == "reset_password",
+                        Job.status.in_(("pending", "running")),
+                    )
+                    .limit(1)
+                )
+                if pending is None:
+                    session.add(
+                        Job(
+                            kind="reset_password",
+                            class_="manage",
+                            payload={"server_id": server.id, "silent": True},
+                            status="pending",
+                            idem_key=f"pw-auto-{server.id}-{int(__import__('time').time()) // 300}",
+                            server_id=server.id,
+                        )
+                    )
+                    await session.commit()
+                await redis.set(flag, "1", ex=120)
+            password = t("srv_pw_loading", db_user.lang or "ru")
         try:
             st = display_status(server)
             actions = ACTIONS.get(st, set())
@@ -113,20 +143,38 @@ async def open_server(
             )
         lang = db_user.lang or "ru"
         settings = get_settings()
-        await show_banner(
-            query,
-            text,
-            server_kb(
-                server.id,
-                actions,
-                auto_renew=server.auto_renew,
-                cancelled=server.cancelled,
-                support_url=settings.support_url,
-                lang=lang,
-            ),
-            banner="servers",
+        kb = server_kb(
+            server.id,
+            actions,
+            auto_renew=server.auto_renew,
+            cancelled=server.cancelled,
+            support_url=settings.support_url,
             lang=lang,
         )
+        sid = server.id
+        uid = db_user.id
+
+    shown = None
+    if len(text) > 1000:
+        from app.bot.render import safe_edit
+
+        await safe_edit(query, text, kb)
+        shown = query.message
+    else:
+        shown = await show_banner(query, text, kb, banner="servers", lang=lang)
+
+    # So the card auto-updates when password arrives (no user action)
+    if fetching and shown is not None:
+        try:
+            await remember_server_card(
+                redis,
+                server_id=sid,
+                chat_id=shown.chat.id,
+                message_id=shown.message_id,
+                user_id=uid,
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(SrvCB.filter(F.action == "pwr"))
@@ -139,7 +187,6 @@ async def power(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
             await query.answer(t("not_found", db_user.lang), show_alert=True)
             return
         if not action_allowed(server, action if action != "restart" else "restart"):
-            # map start/stop
             mapped = action
             if not action_allowed(server, mapped):
                 await query.answer(t("action_unavailable", db_user.lang), show_alert=True)
@@ -160,8 +207,8 @@ async def power(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
 
 @router.callback_query(SrvCB.filter(F.action == "pw"))
 async def reset_pw(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
-    # Password reset disabled in UI — credentials are shown on the card.
-    await query.answer(t("not_found", db_user.lang), show_alert=True)
+    # Password is fetched automatically — no user action needed
+    await query.answer()
 
 
 @router.callback_query(SrvCB.filter(F.action == "ar"))

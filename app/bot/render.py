@@ -109,51 +109,57 @@ async def show_banner(
     *,
     banner: str = "home",
     lang: str = "ru",
-) -> None:
-    """Show section banner photo with caption + inline keyboard (lang-aware assets)."""
+) -> Message | None:
+    """Show section banner photo with caption + inline keyboard (lang-aware assets).
+
+    Returns the resulting Message when known (for tracking panel cards).
+    """
     photo = _banner_media(banner, lang)
     message = _msg(event)
+    result: Message | None = None
 
     if photo is None:
         await safe_edit(event, text, reply_markup)
-        return
+        return _msg(event) if isinstance(event, CallbackQuery) else event
 
     if isinstance(event, CallbackQuery) and message is not None:
         try:
             if _has_media(message):
                 media = InputMediaPhoto(media=photo, caption=text, parse_mode=ParseMode.HTML)
                 edited = await message.edit_media(media=media, reply_markup=reply_markup)
-                await _remember(banner, lang, edited if isinstance(edited, Message) else message)
+                result = edited if isinstance(edited, Message) else message
+                await _remember(banner, lang, result)
             else:
                 try:
                     await message.delete()
                 except Exception:
                     pass
-                sent = await message.answer_photo(
+                result = await message.answer_photo(
                     photo=photo,
                     caption=text,
                     reply_markup=reply_markup,
                     parse_mode=ParseMode.HTML,
                 )
-                await _remember(banner, lang, sent)
+                await _remember(banner, lang, result)
         except Exception:
-            sent = await message.answer_photo(
+            result = await message.answer_photo(
                 photo=photo,
                 caption=text,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
             )
-            await _remember(banner, lang, sent)
+            await _remember(banner, lang, result)
         await _ack(event)
-        return
+        return result
 
-    sent = await event.answer_photo(
+    result = await event.answer_photo(
         photo=photo,
         caption=text,
         reply_markup=reply_markup,
         parse_mode=ParseMode.HTML,
     )
-    await _remember(banner, lang, sent)
+    await _remember(banner, lang, result)
+    return result
 
 
 async def show_home_banner(event, text, reply_markup, *, lang: str = "ru") -> None:
