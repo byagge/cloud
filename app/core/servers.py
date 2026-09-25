@@ -59,7 +59,6 @@ ACTIONS: dict[DisplayStatus, set[str]] = {
         "stop",
         "restart",
         "renew",
-        "password",
         "reinstall",
         "scripts",
         "deploy",
@@ -70,7 +69,6 @@ ACTIONS: dict[DisplayStatus, set[str]] = {
     DisplayStatus.STOPPED: {
         "start",
         "renew",
-        "password",
         "reinstall",
         "deploy",
         "ai_fix",
@@ -83,7 +81,6 @@ ACTIONS: dict[DisplayStatus, set[str]] = {
         "stop",
         "restart",
         "renew",
-        "password",
         "reinstall",
         "deploy",
         "ai_fix",
@@ -92,7 +89,7 @@ ACTIONS: dict[DisplayStatus, set[str]] = {
     DisplayStatus.EXPIRED: {"renew", "monitor"},
     DisplayStatus.FROZEN: {"monitor"},
     DisplayStatus.MISSING: set(),
-    DisplayStatus.UNKNOWN: {"renew", "monitor", "password"},
+    DisplayStatus.UNKNOWN: {"renew", "monitor"},
 }
 
 

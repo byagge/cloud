@@ -35,6 +35,14 @@ class SrvCB(CallbackData, prefix="srv"):
     arg: str = "-"
 
 
+class AgentCB(CallbackData, prefix="ag"):
+    """AI agent session controls (stop / open / plan / deploy strategy)."""
+
+    action: str  # stop | open | plan_go | plan_no | dep_over | dep_side
+    job_id: int = 0
+    server_id: int = 0
+
+
 class ProfCB(CallbackData, prefix="prof"):
     action: str
     arg: str = "-"
@@ -341,12 +349,13 @@ def server_kb(
     actions: set[str],
     *,
     auto_renew: bool,
-    cancelled: bool,
+    cancelled: bool = False,
+    support_url: str | None = None,
+    lang: str = "ru",
     panel_url: str | None = None,
     partner_id: str | None = None,
-    lang: str = "ru",
 ) -> InlineKeyboardMarkup:
-    """Manage keyboard — layout close to Tihost-style panel."""
+    """User-facing manage keyboard."""
     from app.bot.texts import t
 
     rows: list[list[InlineKeyboardButton]] = []
@@ -357,14 +366,6 @@ def server_kb(
     if "monitor" in actions:
         rows.append(
             [_ib(t("srv_btn_monitor", lang), SrvCB(action="mon", server_id=server_id).pack(), "chart")]
-        )
-    # VNC / panel — external URL when possible
-    if partner_id and panel_url:
-        url = f"{panel_url.rstrip('/')}/servers/{partner_id}"
-        rows.append([_url(t("srv_btn_vnc", lang), url, "monitor")])
-    else:
-        rows.append(
-            [_ib(t("srv_btn_vnc", lang), SrvCB(action="vnc", server_id=server_id).pack(), "monitor")]
         )
     if "deploy" in actions:
         rows.append(
@@ -400,30 +401,23 @@ def server_kb(
         mid.append(
             _ib(t("srv_btn_os", lang), SrvCB(action="ri", server_id=server_id).pack(), "term")
         )
-    if "password" in actions:
-        mid.append(
-            _ib(t("srv_btn_pw", lang), SrvCB(action="pw", server_id=server_id).pack(), "lock")
-        )
-    if mid:
-        rows.append(mid)
-
-    mid2: list[InlineKeyboardButton] = []
-    if "rename" in actions or True:
-        mid2.append(
-            _ib(t("srv_btn_rename", lang), SrvCB(action="nm", server_id=server_id).pack(), "pin")
-        )
-    mid2.append(
-        _ib(t("srv_btn_ip", lang), SrvCB(action="ip", server_id=server_id).pack(), "link")
+    mid.append(
+        _ib(t("srv_btn_rename", lang), SrvCB(action="nm", server_id=server_id).pack(), "pin")
     )
-    rows.append(mid2)
+    rows.append(mid)
+
+    support = (support_url or "https://t.me/arxixx").strip()
+    rows.append(
+        [
+            _url(t("srv_btn_ip", lang), support, "link"),
+            _url(t("srv_btn_upgrade", lang), support, "up"),
+        ]
+    )
 
     if "scripts" in actions:
         rows.append(
             [_ib(t("srv_btn_script", lang), SrvCB(action="sc", server_id=server_id).pack(), "hammer")]
         )
-    rows.append(
-        [_ib(t("srv_btn_upgrade", lang), SrvCB(action="upg", server_id=server_id).pack(), "up")]
-    )
 
     ar = "off" if auto_renew else "on"
     rows.append(
@@ -435,11 +429,38 @@ def server_kb(
             )
         ]
     )
-    if not cancelled:
-        rows.append(
-            [_ib(t("srv_btn_cancel", lang), SrvCB(action="rm", server_id=server_id).pack(), "block")]
-        )
     rows.append([_ib(t("srv_btn_back", lang), SrvCB(action="list", arg="0").pack(), "down")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def reinstall_os_groups_kb(
+    server_id: int, groups: list[tuple[str, str, str]], lang: str = "ru"
+) -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    rows = [
+        [_ib(label, SrvCB(action="ri_g", server_id=server_id, arg=key).pack(), icon)]
+        for key, label, icon in groups
+    ]
+    rows.append([_ib(t("srv_btn_back", lang), SrvCB(action="open", server_id=server_id).pack(), "down")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def reinstall_os_versions_kb(
+    server_id: int, images: list[tuple[str, str, str]], lang: str = "ru"
+) -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for oid, name, icon in images:
+        row.append(_ib(name, SrvCB(action="ri_os", server_id=server_id, arg=oid).pack(), icon))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([_ib(t("btn_back", lang), SrvCB(action="ri", server_id=server_id).pack(), "down")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -667,3 +688,103 @@ def lang_kb(*, onboarding: bool = False, lang: str = "en") -> InlineKeyboardMark
     if not onboarding:
         rows.append(back_profile_row(lang))
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def agent_control_kb(
+    *,
+    job_id: int,
+    server_id: int,
+    lang: str = "en",
+    show_stop: bool = True,
+) -> InlineKeyboardMarkup:
+    """Inline shell while AI is running / asking."""
+    from app.bot.texts import t
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if show_stop and job_id:
+        rows.append(
+            [
+                _ib(
+                    t("agent_btn_stop", lang),
+                    AgentCB(action="stop", job_id=job_id, server_id=server_id).pack(),
+                    "block",
+                )
+            ]
+        )
+    rows.append(
+        [
+            _ib(
+                t("srv_btn_back", lang),
+                AgentCB(action="open", job_id=job_id, server_id=server_id).pack(),
+                "down",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def agent_plan_kb(
+    *,
+    job_id: int,
+    server_id: int,
+    lang: str = "en",
+) -> InlineKeyboardMarkup:
+    """Work on plan / Stop / Back after analyze proposes a plan."""
+    from app.bot.texts import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _ib(
+                    t("agent_btn_plan_go", lang),
+                    AgentCB(action="plan_go", job_id=job_id, server_id=server_id).pack(),
+                    "check",
+                )
+            ],
+            [
+                _ib(
+                    t("agent_btn_stop", lang),
+                    AgentCB(action="stop", job_id=job_id, server_id=server_id).pack(),
+                    "block",
+                )
+            ],
+            [
+                _ib(
+                    t("srv_btn_back", lang),
+                    AgentCB(action="open", job_id=job_id, server_id=server_id).pack(),
+                    "down",
+                )
+            ],
+        ]
+    )
+
+
+def deploy_strategy_kb(*, server_id: int, lang: str = "en") -> InlineKeyboardMarkup:
+    """Overwrite existing app vs deploy alongside."""
+    from app.bot.texts import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _ib(
+                    t("agent_btn_dep_over", lang),
+                    AgentCB(action="dep_over", server_id=server_id).pack(),
+                    "cube",
+                )
+            ],
+            [
+                _ib(
+                    t("agent_btn_dep_side", lang),
+                    AgentCB(action="dep_side", server_id=server_id).pack(),
+                    "up",
+                )
+            ],
+            [
+                _ib(
+                    t("srv_btn_back", lang),
+                    SrvCB(action="open", server_id=server_id).pack(),
+                    "down",
+                )
+            ],
+        ]
+    )

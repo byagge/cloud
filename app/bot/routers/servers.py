@@ -79,11 +79,18 @@ async def list_servers(event: Message | CallbackQuery, db_user, callback_data: S
 
 
 @router.callback_query(SrvCB.filter(F.action == "open"))
-async def open_server(query: CallbackQuery, callback_data: SrvCB, db_user, redis) -> None:
+async def open_server(
+    query: CallbackQuery, callback_data: SrvCB, db_user, redis, state: FSMContext | None = None
+) -> None:
     from html import escape
 
     from app.config import get_settings
     from app.core.secrets import get_secret
+
+    # Clear agent deploy/support FSM when user presses Back to server card
+    # (state is injected by aiogram on callback path; direct callers like auto_renew omit it)
+    if state is not None:
+        await state.clear()
 
     factory = get_session_factory()
     async with factory() as session:
@@ -114,8 +121,7 @@ async def open_server(query: CallbackQuery, callback_data: SrvCB, db_user, redis
                 actions,
                 auto_renew=server.auto_renew,
                 cancelled=server.cancelled,
-                panel_url=settings.panel_url,
-                partner_id=server.partner_id,
+                support_url=settings.support_url,
                 lang=lang,
             ),
             banner="servers",
@@ -154,27 +160,8 @@ async def power(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
 
 @router.callback_query(SrvCB.filter(F.action == "pw"))
 async def reset_pw(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
-    factory = get_session_factory()
-    async with factory() as session:
-        server = await session.get(Server, callback_data.server_id)
-        if not server or server.user_id != db_user.id:
-            await query.answer(t("not_found", db_user.lang), show_alert=True)
-            return
-        if not action_allowed(server, "password"):
-            await query.answer(t("action_unavailable", db_user.lang), show_alert=True)
-            return
-        session.add(
-            Job(
-                kind="reset_password",
-                class_="manage",
-                payload={"server_id": server.id},
-                status="pending",
-                idem_key=f"job-pw-{server.id}-{int(__import__('time').time())}",
-                server_id=server.id,
-            )
-        )
-        await session.commit()
-    await query.answer("Новый пароль придёт сюда")
+    # Password reset disabled in UI — credentials are shown on the card.
+    await query.answer(t("not_found", db_user.lang), show_alert=True)
 
 
 @router.callback_query(SrvCB.filter(F.action == "ar"))
@@ -367,10 +354,13 @@ async def script_run(query: CallbackQuery, callback_data: SrvCB, db_user) -> Non
 
 
 @router.callback_query(SrvCB.filter(F.action == "ri"))
-async def reinstall_os(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
+async def reinstall_os(query: CallbackQuery, callback_data: SrvCB, db_user, redis) -> None:
+    import json
+    from collections import defaultdict
+
+    from app.bot.keyboards import reinstall_os_groups_kb
     from app.partner import get_partner
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    from app.bot.ui.emoji import icon_id
+    from app.partner.fake import os_group, os_group_icon
 
     factory = get_session_factory()
     async with factory() as session:
@@ -384,26 +374,69 @@ async def reinstall_os(query: CallbackQuery, callback_data: SrvCB, db_user) -> N
         partner_id = server.partner_id
         sid = server.id
     images = await get_partner().os_for_reinstall(partner_id)
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=o.name,
-                callback_data=SrvCB(action="ri_os", server_id=sid, arg=o.id).pack(),
-                icon_custom_emoji_id=icon_id("term"),
-            )
-        ]
-        for o in images
+    os_dump = [{"id": o.id, "name": o.name} for o in images]
+    await redis.set(f"reinstall:os:{sid}", json.dumps(os_dump), ex=600)
+
+    groups: dict[str, list] = defaultdict(list)
+    for o in os_dump:
+        groups[os_group(o["name"])].append(o)
+    order_groups = [
+        "Windows",
+        "Alma Linux",
+        "Debian",
+        "Rocky",
+        "Ubuntu",
+        "Oracle",
+        "CentOS",
+        "FreeBSD",
+        "Other",
     ]
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text="Назад",
-                callback_data=SrvCB(action="open", server_id=sid).pack(),
-                icon_custom_emoji_id=icon_id("down"),
-            )
-        ]
+    group_btns = []
+    for g in order_groups:
+        if g not in groups:
+            continue
+        group_btns.append((g, f"{g} ({len(groups[g])})", os_group_icon(g)))
+
+    lang = db_user.lang or "ru"
+    text = decorate(t("reinstall_os_groups", lang))
+    await show_banner(
+        query, text, reinstall_os_groups_kb(sid, group_btns, lang), banner="servers", lang=lang
     )
-    await safe_edit(query, "Выбери ОС для переустановки:", InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(SrvCB.filter(F.action == "ri_g"))
+async def reinstall_os_group(query: CallbackQuery, callback_data: SrvCB, db_user, redis) -> None:
+    import json
+
+    from app.bot.keyboards import reinstall_os_versions_kb
+    from app.partner.fake import os_group, os_group_icon
+
+    sid = callback_data.server_id
+    group = callback_data.arg
+    raw = await redis.get(f"reinstall:os:{sid}")
+    if not raw:
+        await query.answer(t("not_found", db_user.lang), show_alert=True)
+        return
+    os_list = json.loads(raw if isinstance(raw, str) else raw.decode())
+    versions = [
+        (o["id"], o["name"], os_group_icon(group))
+        for o in os_list
+        if os_group(o["name"]) == group
+    ]
+    if not versions:
+        await query.answer(t("not_found", db_user.lang), show_alert=True)
+        return
+    lang = db_user.lang or "ru"
+    from html import escape
+
+    text = decorate(t("reinstall_os_versions", lang, group=escape(group)))
+    await show_banner(
+        query,
+        text,
+        reinstall_os_versions_kb(sid, versions, lang),
+        banner="servers",
+        lang=lang,
+    )
 
 
 @router.callback_query(SrvCB.filter(F.action == "ri_os"))
@@ -439,7 +472,7 @@ async def reinstall_go(query: CallbackQuery, callback_data: SrvCB, db_user) -> N
             )
         )
         await session.commit()
-    await query.answer("Переустановка в очереди", show_alert=True)
+    await query.answer("OK", show_alert=True)
 
 @router.callback_query(SrvCB.filter(F.action == "mon"))
 async def monitor(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
@@ -475,18 +508,3 @@ async def monitor(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
             ]
         )
     await show_banner(query, text, kb, banner="servers", lang=lang)
-
-
-@router.callback_query(SrvCB.filter(F.action == "vnc"))
-async def vnc_info(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
-    await query.answer(t("srv_vnc_na", db_user.lang or "ru"), show_alert=True)
-
-
-@router.callback_query(SrvCB.filter(F.action == "ip"))
-async def change_ip(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
-    await query.answer(t("srv_ip_na", db_user.lang or "ru"), show_alert=True)
-
-
-@router.callback_query(SrvCB.filter(F.action == "upg"))
-async def upgrade_plan(query: CallbackQuery, callback_data: SrvCB, db_user) -> None:
-    await query.answer(t("srv_upgrade_na", db_user.lang or "ru"), show_alert=True)

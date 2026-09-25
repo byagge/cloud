@@ -111,8 +111,8 @@ TEXTS = {
     "srv_btn_renew": "⌛ Extend rental",
     "srv_btn_monitor": "📊 Monitoring",
     "srv_btn_vnc": "🖥️ Console (VNC) on site",
-    "srv_btn_deploy": "🚀 Deploy projects",
-    "srv_btn_ai": "🤖 AI for project",
+    "srv_btn_deploy": "📦 Update project (zip)",
+    "srv_btn_ai": "🤖 AI: fix project",
     "srv_btn_stop": "⛔ Power off",
     "srv_btn_start": "▶️ Power on",
     "srv_btn_restart": "🔄 Restart",
@@ -133,35 +133,64 @@ TEXTS = {
         "├ CPU: {cpu}\n"
         "├ RAM: {ram}\n"
         "├ Disk: {disk}\n"
-        "╰ Synced from partner panel every few minutes."
+        "╰ Stats refresh automatically."
     ),
-    "srv_ip_na": "IP change is not available via partner API. Use Tihost panel.",
-    "srv_upgrade_na": "Plan upgrade is in the partner panel.",
-    "srv_vnc_na": "Open the partner panel for VNC.",
+    "agent_need_password": "SSH password is not ready yet. Open the server later or contact support.",
+    "reinstall_os_groups": "<b>Change OS</b>\n\nPick a group:",
+    "reinstall_os_versions": "<b>Change OS: {group}</b>\n\nPick an image:",
     "agent_deploy_ask": (
-        "🚀 <b>Autodeploy</b>\n\n"
-        "Send a <b>zip</b> or project file in one message.\n"
-        "AI will SSH in, use /opt/arix-apps/…, deploy without breaking other apps, "
-        "and ask for tokens if needed."
+        "📦 <b>Update existing project</b>\n\n"
+        "Send a <b>zip/tar</b> for a project that <b>already runs</b> on this VPS.\n"
+        "Then choose overwrite or deploy alongside. AI only updates under /opt/arix-apps/…\n"
+        "Optional caption: which app to update.\n\n"
+        "During the run you get a <b>Stop</b> button."
     ),
     "agent_ai_ask": (
-        "🤖 <b>AI for project</b>\n\n"
-        "Describe the problem (photo optional).\n"
-        "AI will inspect logs, backup before edits, and fix."
+        "🤖 <b>AI: fix existing project</b>\n\n"
+        "Describe what is broken (photo optional).\n"
+        "AI analyzes first, proposes a plan, then waits for your OK before writing.\n"
+        "Only patches projects already on the server — minimal edits + backups.\n\n"
+        "During the run you get a <b>Stop</b> button."
     ),
-    "agent_need_password": "No SSH password. Tap «Reset password» first and wait for the DM.",
+    "agent_deploy_strategy_ask": (
+        "📦 Archive saved.\n\n"
+        "How should we deploy it on this server?"
+    ),
+    "agent_btn_dep_over": "♻️ Overwrite existing",
+    "agent_btn_dep_side": "➕ Deploy alongside",
+    "agent_btn_plan_go": "✅ Work on plan",
+    "agent_btn_plan_no": "❌ Decline plan",
+    "agent_plan_accepted": "⚙️ Starting work on the plan…",
+    "agent_answer": "✅ {answer}\n\n💡 {suggestion}",
+    "agent_plan_use_buttons": "Use the buttons under the plan (Work on plan / Stop).",
     "agent_need_gemini": "GEMINI_API_KEY is missing in server .env.",
-    "agent_started": "AI agent started. Updates will arrive here.",
-    "agent_ask_user": "❓ AI asks:\n\n{question}\n\nReply in one message.",
+    "agent_started": (
+        "🛠 <b>AI session started</b>\n\n"
+        "• Works only on existing projects\n"
+        "• Asks if it needs a token/domain\n"
+        "• Press <b>Stop</b> to cancel anytime"
+    ),
+    "agent_got_answer": "Got it — AI continues. You can still press Stop.",
+    "agent_ask_user": "❓ AI asks:\n\n{question}\n\nReply in one message (or press Stop).",
     "agent_done": "✅ {summary}",
     "agent_fail": "❌ Agent: {err}",
+    "agent_busy": "AI is waiting for your reply to the previous question.",
+    "agent_no_ip": "Server has no IP yet.",
+    "agent_file_too_big": "File is too large (max 40 MB).",
+    "agent_file_bad_type": "Send a zip / tar / tar.gz archive.",
+    "agent_need_detail": "Describe the problem in more detail (min 3 characters).",
+    "agent_nopw_reset": "SSH password missing — resetting it now. Try AI again in a minute.",
+    "agent_already_running": "AI is already working on this server. Wait for it to finish.",
+    "agent_locked": "AI is busy on this server. Retrying shortly…",
+    "agent_btn_stop": "⏹ Stop AI",
+    "agent_stopping": "Stopping AI…",
     "server_card": (
         "🖥️ <b>Server</b>\n\n"
         "OS: {os}\n"
         "Name: <code>{name}</code>\n"
         "Location: {location}\n"
         "Status: {dot} <b>{status}</b>\n"
-        "ID: <code>{sid}</code> · Partner: <code>{partner_id}</code>\n\n"
+        "ID: <code>{sid}</code>\n\n"
         "<b>Resources</b>\n"
         "CPU: {cpu} · RAM: {ram} · Disk: {disk}\n"
         "Plan: {plan}\n\n"

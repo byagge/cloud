@@ -9,6 +9,10 @@ from typing import Any
 
 import asyncssh
 
+from app.logging import get_logger
+
+log = get_logger("agent.ssh")
+
 
 @dataclass
 class SSHResult:
@@ -35,7 +39,23 @@ class SshSession:
             password=self.password,
             known_hosts=None,
             connect_timeout=30,
+            login_timeout=30,
         )
+
+    async def ensure(self) -> None:
+        if self._conn is None:
+            await self.connect()
+            return
+        try:
+            # cheap keepalive
+            await asyncio.wait_for(self._conn.run("true", check=False), timeout=10)
+        except Exception:
+            log.warning("ssh_reconnect", host=self.host)
+            try:
+                await self.close()
+            except Exception:
+                pass
+            await self.connect()
 
     async def close(self) -> None:
         if self._conn:
@@ -54,8 +74,8 @@ class SshSession:
         await self.close()
 
     async def run(self, command: str, *, timeout: float = 120) -> SSHResult:
-        if not self._conn:
-            raise RuntimeError("SSH not connected")
+        await self.ensure()
+        assert self._conn is not None
         try:
             result = await asyncio.wait_for(
                 self._conn.run(command, check=False),
@@ -63,15 +83,43 @@ class SshSession:
             )
         except asyncio.TimeoutError:
             return SSHResult(exit_code=124, stdout="", stderr=f"timeout after {timeout}s")
+        except Exception as e:
+            # one reconnect retry
+            try:
+                await self.close()
+                await self.connect()
+                assert self._conn is not None
+                result = await asyncio.wait_for(
+                    self._conn.run(command, check=False),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                return SSHResult(exit_code=124, stdout="", stderr=f"timeout after {timeout}s")
+            except Exception as e2:
+                return SSHResult(exit_code=255, stdout="", stderr=f"ssh error: {e2}")
+        # exit_status is None when killed by signal or channel closed — never treat as 0
+        status = result.exit_status
+        stderr = result.stderr or ""
+        if status is None:
+            sig = getattr(result, "exit_signal", None)
+            if sig and isinstance(sig, (tuple, list)) and sig[0]:
+                code = -1
+                stderr = (stderr + f"\n[terminated by signal {sig[0]}]").strip()
+            else:
+                code = -1
+                if not stderr:
+                    stderr = "command ended with no exit status (signal/channel closed)"
+        else:
+            code = int(status)
         return SSHResult(
-            exit_code=int(result.exit_status or 0),
+            exit_code=code,
             stdout=(result.stdout or "")[-12_000:],
-            stderr=(result.stderr or "")[-4_000:],
+            stderr=stderr[-4_000:],
         )
 
     async def write_bytes(self, remote_path: str, data: bytes) -> None:
-        if not self._conn:
-            raise RuntimeError("SSH not connected")
+        await self.ensure()
+        assert self._conn is not None
         parent = remote_path.rsplit("/", 1)[0]
         if parent:
             await self.run(f"mkdir -p {shlex.quote(parent)}")
@@ -89,14 +137,12 @@ class SshSession:
 
     async def backup(self, path: str) -> str:
         q = shlex.quote(path)
-        stamp = "$(date +%Y%m%d-%H%M%S)"
-        dest = f"{path}.bak.{stamp}"
-        # expand stamp on remote
         res = await self.run(
-            f'if [ -e {q} ]; then cp -a {q} "{path}.bak.$(date +%Y%m%d-%H%M%S)" && '
-            f'ls -1d {q}.bak.* 2>/dev/null | tail -1; else echo "missing:{path}"; fi'
+            f"if [ -e {q} ]; then "
+            f"dest={q}.bak.$(date +%Y%m%d-%H%M%S); cp -a {q} \"$dest\" && echo \"$dest\"; "
+            f"else echo missing:{q}; fi"
         )
-        return (res.stdout or dest).strip()
+        return (res.stdout or "").strip() or f"{path}.bak"
 
 
 async def open_ssh(host: str, username: str, password: str, *, port: int = 22) -> SshSession:

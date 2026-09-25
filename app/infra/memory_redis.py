@@ -24,7 +24,19 @@ class MemoryRedis:
     async def get(self, key: str) -> str | None:
         return self._alive(key)
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> bool:
+    async def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+        xx: bool = False,
+    ) -> bool | None:
+        alive = self._alive(key)
+        if nx and alive is not None:
+            return None
+        if xx and alive is None:
+            return None
         exp = time.time() + ex if ex else None
         self._kv[key] = (str(value), exp)
         return True

@@ -127,8 +127,12 @@ def server_card_text(user, server, *, password: str | None = None) -> str:
         expires = expires_at.strftime("%d.%m.%Y %H:%M") if expires_at else "—"
     except Exception:
         expires = "—"
-    auto = ("да" if lang == "ru" else "yes") if server.auto_renew and not server.cancelled else ("нет" if lang == "ru" else "no")
-    pwd = password if password else ("— (нажмите «Сменить пароль»)" if lang == "ru" else "— (tap Change password)")
+    auto = (
+        ("да" if lang == "ru" else "yes")
+        if server.auto_renew and not server.cancelled
+        else ("нет" if lang == "ru" else "no")
+    )
+    pwd = password if password else "—"
     ram = f"{(server.ram_mb or 0) / 1024:.1f} GB" if server.ram_mb else "—"
     return decorate(
         t(
@@ -147,7 +151,6 @@ def server_card_text(user, server, *, password: str | None = None) -> str:
             ram=ram,
             disk=f"{server.disk_gb} GB" if server.disk_gb else "—",
             sid=server.id,
-            partner_id=escape(str(server.partner_id or "—")),
             expires=expires,
             auto_renew=auto,
         )
