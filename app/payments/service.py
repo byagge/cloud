@@ -42,6 +42,19 @@ async def apply_invoice_state(
             ref=str(invoice.id),
             text=f"Баланс пополнен на ${credited}.",
         )
+        try:
+            from app.core.affiliate import credit_commission_on_topup
+
+            await credit_commission_on_topup(
+                session,
+                client_user_id=invoice.user_id,
+                topup_usd=credited,
+                invoice_id=invoice.id,
+            )
+        except Exception:
+            from app.logging import get_logger
+
+            get_logger("payments").exception("partner_commission_failed", invoice_id=invoice.id)
     elif remote.status == "partial":
         invoice.status = "partial"
     elif remote.status in {"expired", "failed"}:

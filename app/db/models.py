@@ -40,6 +40,15 @@ class User(Base):
     balance_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    # Affiliate reseller panel (NOT Tihost provider). Granted by admin only.
+    is_partner: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    partner_balance_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    referred_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    attach_kind: Mapped[str | None] = mapped_column(Text)  # invite | transfer
     banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     bot_blocked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
@@ -317,6 +326,60 @@ class Setting(Base):
     value: Mapped[Any] = mapped_column(JSON, nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_by: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class PartnerLedgerEntry(Base):
+    """Affiliate partner earnings (separate from client balance_usd)."""
+
+    __tablename__ = "partner_ledger"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    partner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    client_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    kind: Mapped[str] = mapped_column(Text, nullable=False)  # commission | withdraw | adjust
+    amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    base_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    attach_kind: Mapped[str | None] = mapped_column(Text)
+    uniq_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    ref_type: Mapped[str | None] = mapped_column(Text)
+    ref_id: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind in ('commission','withdraw','adjust')",
+            name="partner_ledger_kind_chk",
+        ),
+        Index("ix_partner_ledger_partner_created", "partner_user_id", "created_at"),
+    )
+
+
+class PartnerWithdraw(Base):
+    __tablename__ = "partner_withdraws"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    partner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    details: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
+    admin_note: Mapped[str | None] = mapped_column(Text)
+    processed_by: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending','paid','rejected')",
+            name="partner_withdraw_status_chk",
+        ),
+        Index("ix_partner_withdraws_status", "status", "created_at"),
+    )
 
 
 class PromoCode(Base):

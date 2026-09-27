@@ -54,6 +54,11 @@ class AdmCB(CallbackData, prefix="adm"):
     arg: str = "-"
 
 
+class PartnerCB(CallbackData, prefix="prt"):
+    action: str  # home|link|refs|ref_open|detach|xfer|xfer_pick|bal|wd|stats
+    arg: str = "-"
+
+
 class TermsCB(CallbackData, prefix="terms"):
     ok: int = 1
 
@@ -92,7 +97,9 @@ def terms_kb(lang: str = "en") -> InlineKeyboardMarkup:
     )
 
 
-def main_menu(*, is_admin: bool = False, lang: str = "ru") -> InlineKeyboardMarkup:
+def main_menu(
+    *, is_admin: bool = False, is_partner: bool = False, lang: str = "ru"
+) -> InlineKeyboardMarkup:
     from app.bot.texts import t
 
     rows = [
@@ -105,8 +112,105 @@ def main_menu(*, is_admin: bool = False, lang: str = "ru") -> InlineKeyboardMark
             _ib(t("btn_support", lang), NavCB(to="support").pack(), "mega"),
         ],
     ]
+    if is_partner:
+        rows.append([_ib(t("btn_partner", lang), NavCB(to="partner").pack(), "crown")])
     if is_admin:
         rows.append([_ib(t("btn_admin", lang), AdmCB(section="home").pack(), "crown")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def back_partner_row(lang: str = "ru") -> list[InlineKeyboardButton]:
+    from app.bot.texts import t
+
+    return [_ib(t("btn_back", lang), PartnerCB(action="home").pack(), "down")]
+
+
+def partner_home_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _ib(t("partner_btn_link", lang), PartnerCB(action="link").pack(), "link"),
+                _ib(t("partner_btn_xfer", lang), PartnerCB(action="xfer", arg="0").pack(), "monitor"),
+            ],
+            [
+                _ib(t("partner_btn_refs", lang), PartnerCB(action="refs", arg="0").pack(), "users"),
+                _ib(t("partner_btn_stats", lang), PartnerCB(action="stats", arg="0").pack(), "chart"),
+            ],
+            [_ib(t("partner_btn_balance", lang), PartnerCB(action="bal").pack(), "wallet")],
+            back_home_row(lang),
+        ]
+    )
+
+
+def partner_refs_kb(
+    items: list[tuple[str, str]],
+    *,
+    page: int = 0,
+    has_next: bool = False,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    rows = [
+        [_ib(label, PartnerCB(action="ref_open", arg=iid).pack(), "user")]
+        for iid, label in items
+    ]
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_ib("◀️", PartnerCB(action="refs", arg=str(page - 1)).pack(), "down"))
+    if has_next:
+        nav.append(_ib("▶️", PartnerCB(action="refs", arg=str(page + 1)).pack(), "up"))
+    if nav:
+        rows.append(nav)
+    rows.append(back_partner_row(lang))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def partner_transfer_servers_kb(
+    items: list[tuple[int, str]],
+    *,
+    page: int = 0,
+    has_next: bool = False,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    rows = [
+        [_ib(label, PartnerCB(action="xfer_pick", arg=str(sid)).pack(), "monitor")]
+        for sid, label in items
+    ]
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_ib("◀️", PartnerCB(action="xfer", arg=str(page - 1)).pack(), "down"))
+    if has_next:
+        nav.append(_ib("▶️", PartnerCB(action="xfer", arg=str(page + 1)).pack(), "up"))
+    if nav:
+        rows.append(nav)
+    rows.append(back_partner_row(lang))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def partner_withdraw_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_ib(t("partner_btn_withdraw", lang), PartnerCB(action="wd").pack(), "wallet")],
+            back_partner_row(lang),
+        ]
+    )
+
+
+def partner_stats_kb(
+    *, page: int = 0, has_next: bool = False, lang: str = "ru"
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_ib("◀️", PartnerCB(action="stats", arg=str(page - 1)).pack(), "down"))
+    if has_next:
+        nav.append(_ib("▶️", PartnerCB(action="stats", arg=str(page + 1)).pack(), "up"))
+    if nav:
+        rows.append(nav)
+    rows.append(back_partner_row(lang))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -175,15 +279,19 @@ def networks_kb(wallets: list[dict], amount: str, lang: str = "ru") -> InlineKey
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def invoice_kb(invoice_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
+def invoice_kb(
+    invoice_id: int, lang: str = "ru", *, pay_url: str | None = None
+) -> InlineKeyboardMarkup:
     from app.bot.texts import t
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_ib(t("btn_check_pay", lang), BalCB(action="chk", arg=str(invoice_id)).pack(), "search")],
-            [_ib(t("btn_back", lang), BalCB(action="topup").pack(), "down")],
-        ]
+    rows: list[list[InlineKeyboardButton]] = []
+    if pay_url:
+        rows.append([_url(t("btn_pay_open", lang), pay_url, "link")])
+    rows.append(
+        [_ib(t("btn_check_pay", lang), BalCB(action="chk", arg=str(invoice_id)).pack(), "search")]
     )
+    rows.append([_ib(t("btn_back", lang), BalCB(action="topup").pack(), "down")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def plans_kb(draft_id: int, plans: list[tuple[str, str]], lang: str = "ru") -> InlineKeyboardMarkup:
@@ -495,8 +603,18 @@ def admin_home_kb(lang: str = "ru") -> InlineKeyboardMarkup:
                 _ib(t("adm_btn_wallets", lang), AdmCB(section="wal", action="list").pack(), "wallet"),
             ],
             [
+                _ib(t("adm_btn_gateways", lang), AdmCB(section="pgw", action="list").pack(), "link"),
+            ],
+            [
                 _ib(t("adm_btn_audit", lang), AdmCB(section="aud", action="list", arg="0").pack(), "chart"),
                 _ib(t("adm_btn_broadcast", lang), AdmCB(section="bc", action="open").pack(), "mega"),
+            ],
+            [
+                _ib(
+                    t("adm_btn_partner_wd", lang),
+                    AdmCB(section="pwd", action="list", arg="0").pack(),
+                    "wallet",
+                )
             ],
             back_home_row(lang),
         ]
@@ -533,11 +651,15 @@ def admin_list_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def admin_user_kb(user_id: int, *, banned: bool, lang: str = "ru") -> InlineKeyboardMarkup:
+def admin_user_kb(
+    user_id: int, *, banned: bool, is_partner: bool = False, lang: str = "ru"
+) -> InlineKeyboardMarkup:
     from app.bot.texts import t
 
     ban_label = t("adm_unban", lang) if banned else t("adm_ban", lang)
     ban_act = "unban" if banned else "ban"
+    partner_label = t("adm_partner_off", lang) if is_partner else t("adm_partner_on", lang)
+    partner_act = "partner_off" if is_partner else "partner_on"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -555,9 +677,61 @@ def admin_user_kb(user_id: int, *, banned: bool, lang: str = "ru") -> InlineKeyb
                     "link",
                 )
             ],
+            [
+                _ib(
+                    partner_label,
+                    AdmCB(section="usr", action=partner_act, arg=str(user_id)).pack(),
+                    "crown",
+                )
+            ],
             [_ib(t("btn_back", lang), AdmCB(section="usr", action="list", arg="0").pack(), "down")],
         ]
     )
+
+
+def admin_partner_wd_kb(
+    items: list[tuple[str, str]],
+    *,
+    page: int = 0,
+    has_next: bool = False,
+    lang: str = "ru",
+) -> InlineKeyboardMarkup:
+    rows = [
+        [_ib(label, AdmCB(section="pwd", action="open", arg=iid).pack(), "wallet")]
+        for iid, label in items
+    ]
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_ib("◀️", AdmCB(section="pwd", action="list", arg=str(page - 1)).pack(), "down"))
+    if has_next:
+        nav.append(_ib("▶️", AdmCB(section="pwd", action="list", arg=str(page + 1)).pack(), "up"))
+    if nav:
+        rows.append(nav)
+    rows.append(admin_back_home(lang))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_partner_wd_open_kb(withdraw_id: int, *, pending: bool, lang: str = "ru") -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if pending:
+        rows.append(
+            [
+                _ib(
+                    t("adm_pwd_pay", lang),
+                    AdmCB(section="pwd", action="pay", arg=str(withdraw_id)).pack(),
+                    "check",
+                ),
+                _ib(
+                    t("adm_pwd_reject", lang),
+                    AdmCB(section="pwd", action="reject", arg=str(withdraw_id)).pack(),
+                    "block",
+                ),
+            ]
+        )
+    rows.append([_ib(t("btn_back", lang), AdmCB(section="pwd", action="list", arg="0").pack(), "down")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_server_kb(server_id: int, user_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
@@ -674,6 +848,57 @@ def admin_wallet_kb(wallet_id: str, *, enabled: bool, has_addr: bool, lang: str 
                 )
             ],
             [_ib(t("btn_back", lang), AdmCB(section="wal", action="list").pack(), "down")],
+        ]
+    )
+
+
+def admin_gateways_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+    from app.core.settings_store import settings_store
+
+    rows = []
+    for gid, label, en_key, tok_key in (
+        ("cryptobot", "CryptoBot", "cryptobot_enabled", "cryptobot_token"),
+        ("xrocket", "xRocket", "xrocket_enabled", "xrocket_token"),
+    ):
+        has_tok = bool(str(settings_store.get(tok_key) or "").strip())
+        on = bool(settings_store.bool(en_key) and has_tok)
+        mark = "🟢" if on else "🔴"
+        tok_mark = "🔑" if has_tok else "—"
+        rows.append(
+            [
+                _ib(
+                    f"{mark} {label} {tok_mark}",
+                    AdmCB(section="pgw", action="open", arg=gid).pack(),
+                    "link",
+                )
+            ]
+        )
+    rows.append(admin_back_home(lang))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_gateway_kb(gateway_id: str, *, enabled: bool, has_token: bool, lang: str = "ru") -> InlineKeyboardMarkup:
+    from app.bot.texts import t
+
+    tog = t("adm_pay_off", lang) if enabled else t("adm_pay_on", lang)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _ib(
+                    tog,
+                    AdmCB(section="pgw", action="tog", arg=gateway_id).pack(),
+                    "check" if not enabled else "block",
+                )
+            ],
+            [
+                _ib(
+                    t("adm_set_token", lang),
+                    AdmCB(section="pgw", action="token", arg=gateway_id).pack(),
+                    "pin",
+                )
+            ],
+            [_ib(t("btn_back", lang), AdmCB(section="pgw", action="list").pack(), "down")],
         ]
     )
 

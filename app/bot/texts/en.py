@@ -18,6 +18,7 @@ TEXTS = {
     "btn_profile": "Profile",
     "btn_support": "Support",
     "btn_admin": "Admin",
+    "btn_partner": "Partner",
     "btn_back": "◀ Back",
     "btn_menu": "◀ Menu",
     "btn_topup": "Top up balance",
@@ -30,6 +31,7 @@ TEXTS = {
     "btn_accept_terms": "Accept & continue",
     "btn_write_manager": "Message manager",
     "btn_check_pay": "Check payment",
+    "btn_pay_open": "Pay in bot",
     "btn_enter_promo": "Enter promo code",
     "btn_pay": "Pay {price}",
     "btn_topup_missing": "Top up {missing}",
@@ -103,7 +105,17 @@ TEXTS = {
         "╰ Until: {expires}\n\n"
         "Send the exact amount. Then tap Check or wait for auto-credit (1–3 min)."
     ),
-    "invoice_no_wallets": "Crypto addresses not configured yet. Contact support.",
+    "invoice_gateway": (
+        "{wallet} <b>Payment #{invoice_id}</b>\n\n"
+        "├ Method: <b>{method}</b>\n"
+        "├ Amount: <b>{amount}</b>\n"
+        "├ Network: {network}\n"
+        "╰ Until: {expires}\n\n"
+        "Tap “Pay in bot”, complete payment, then “Check” "
+        "or wait for auto-credit."
+    ),
+    "invoice_gateway_fail": "Failed to create invoice: {err}",
+    "invoice_no_wallets": "Payment methods are not configured yet. Contact support.",
     "pay_status_paid": "Payment received ✓",
     "pay_status_pending": "Not seen yet. Wait 1–2 min and check again.",
     "servers_empty": "{monitor} <b>My servers</b>\n\nEmpty. Buy your first server.",
@@ -244,27 +256,25 @@ TEXTS = {
         "Server is created right after paying from balance."
     ),
     "order_accepted": (
-        "{robot} Order <b>#{order_id}</b> accepted. Creating server (1–3 min).\n"
-        "Credentials will arrive here."
+        "{robot} Order <b>#{order_id}</b> accepted.\n"
+        "Server is being prepared, usually 1–3 minutes.\n"
+        "We'll notify you when it's ready."
     ),
     "order_create_failed": (
         "Could not create the server. Please try again later.\n"
         "Funds have been returned to your balance."
     ),
+    "order_preparing": (
+        "{robot} Order <b>#{order_id}</b>: preparing your server…"
+    ),
+    "server_ready": (
+        "{check} Server <b>{name}</b> is ready.\n"
+        "IP: <code>{ip}</code>\n"
+        "Login: <code>{login}</code>\n\n"
+        "Password is on the server card."
+    ),
     "order_stale": "Order expired",
     "need_funds": "Insufficient balance",
-    "creds": (
-        "{lock} <b>Credentials #{server_id}</b>\n\n"
-        "Login: <code>{login}</code>\n"
-        "Password: <code>{password}</code>\n\n"
-        "{warn} Shown once. Deleted in 10 minutes."
-    ),
-    "creds_password": (
-        "{lock} <b>New password #{server_id}</b>\n\n"
-        "Login: <code>{login}</code>\n"
-        "Password: <code>{password}</code>\n\n"
-        "{warn} Save now. Deleted in 10 minutes."
-    ),
     "admin_home": (
         "{crown} <b>Admin</b>\n\n"
         "Users: {users}\n"
@@ -294,6 +304,7 @@ TEXTS = {
     "adm_btn_fin": "Finance",
     "adm_btn_settings": "Settings",
     "adm_btn_wallets": "Wallets",
+    "adm_btn_gateways": "CryptoBot / xRocket",
     "adm_btn_audit": "Audit",
     "adm_btn_broadcast": "Broadcast",
     "adm_btn_admin": "◀ Admin",
@@ -322,6 +333,21 @@ TEXTS = {
     "adm_pay_on": "Enable payment",
     "adm_pay_off": "Disable payment",
     "adm_set_addr": "Set address",
+    "adm_set_token": "Set token",
+    "adm_gateways_title": (
+        "{link} <b>Payment gateways</b>\n\n"
+        "CryptoBot and xRocket. Set the API token and enable the method."
+    ),
+    "adm_gateway_card": (
+        "{link} <b>{label}</b>\n\n"
+        "├ Status: <b>{status}</b>\n"
+        "├ Token: <code>{token}</code>\n"
+        "╰ {hint}"
+    ),
+    "adm_gateway_need_token": "Set the token first",
+    "adm_token_ask": "Send the API token for {label} (message will be deleted):",
+    "adm_token_bad": "Token is too short",
+    "adm_token_ok": "{label} token saved",
     "adm_bal_ask": "Adjustment amount for #{id} (e.g. 10 or -5):",
     "adm_addr_ask": "Send address for {network}:",
     "adm_bc_ask": "Send the broadcast message as-is (text/Markdown/photo/media):",
@@ -342,4 +368,89 @@ TEXTS = {
         "├ Address: <code>{address}</code>\n"
         "╰ Status: <b>{status}</b>"
     ),
+    # Affiliate partner panel
+    "partner_denied": "Partner panel is for partners only.",
+    "partner_granted_notify": (
+        "🎉 You are now an ARIX Cloud partner!\n"
+        "Open the menu → “Partner”."
+    ),
+    "partner_home": (
+        "{crown} <b>Partner panel</b>\n\n"
+        "{wallet} Balance: <b>{balance}</b>\n"
+        "├ Total earned: <b>{earned}</b>\n"
+        "├ This month: <b>{month}</b>\n"
+        "├ Clients: <b>{clients}</b>\n"
+        "├ Invite rate: <b>{rate_invite}%</b>\n"
+        "╰ Transfer rate: <b>{rate_transfer}%</b>"
+    ),
+    "partner_btn_link": "Invite link",
+    "partner_btn_xfer": "Transfer server",
+    "partner_btn_refs": "Referrals",
+    "partner_btn_stats": "Stats",
+    "partner_btn_balance": "Balance / Withdraw",
+    "partner_btn_withdraw": "Withdraw",
+    "partner_btn_detach": "Detach",
+    "partner_link": (
+        "{users} <b>Partner invite link</b>\n\n"
+        "Clients are attached when they open the link.\n"
+        "Your share: <b>{rate}%</b> of every top-up.\n\n"
+        "{pin} <code>{link}</code>"
+    ),
+    "partner_refs_title": "{users} <b>Referrals</b> ({count})",
+    "partner_refs_empty": "\n\nNo attached clients yet.",
+    "partner_ref_card": (
+        "{users} <b>Client #{id}</b>\n\n"
+        "├ TG: <code>{tg_id}</code>\n"
+        "├ Username: {username}\n"
+        "├ Name: {name}\n"
+        "├ Kind: <b>{kind}</b> ({rate}%)\n"
+        "├ Earned from them: <b>{earned}</b>\n"
+        "╰ Servers: {servers}"
+    ),
+    "partner_detach_ok": "Client detached",
+    "partner_xfer_title": (
+        "{monitor} <b>Transfer server</b>\n\n"
+        "Client receives the server and is attached to you ({rate}% of top-ups)."
+    ),
+    "partner_xfer_hint": "\n\nPick a server:",
+    "partner_xfer_empty": "\n\nNo servers to transfer.",
+    "partner_xfer_ask_tg": "Server #{sid}: send the recipient Telegram ID (number):",
+    "partner_xfer_bad_tg": "Need a numeric Telegram ID.",
+    "partner_xfer_self": "You can't transfer a server to yourself.",
+    "partner_xfer_no_user": "User hasn't started the bot yet. Ask them to send /start.",
+    "partner_xfer_ok": (
+        "✅ Server #{sid} transferred to <code>{tg_id}</code>.\n"
+        "Client attached · {rate}% commission."
+    ),
+    "partner_xfer_attach_fail": (
+        "Server #{sid} transferred to <code>{tg_id}</code>, but attach failed."
+    ),
+    "partner_balance": (
+        "{wallet} <b>Partner balance</b>\n\n"
+        "├ Available: <b>{balance}</b>\n"
+        "├ Total earned: <b>{earned}</b>\n"
+        "├ Pending requests: {pending}\n"
+        "╰ Min withdraw: ${min_withdraw}"
+    ),
+    "partner_wd_ask_amount": "Withdrawal amount (min ${min}):",
+    "partner_wd_ask_details": "Payout details (wallet / card / contacts):",
+    "partner_wd_bad_amount": "Invalid amount.",
+    "partner_wd_bad_details": "Provide more details (at least 5 characters).",
+    "partner_wd_min": "Minimum withdrawal: {min}",
+    "partner_wd_insufficient": "Insufficient balance ({balance}).",
+    "partner_wd_ok": "✅ Request #{id} for {amount} submitted. Admin will be notified.",
+    "partner_stats": (
+        "{chart} <b>Earnings stats</b>\n\n"
+        "├ Balance: <b>{balance}</b>\n"
+        "├ Total: <b>{earned}</b>\n"
+        "├ This month: <b>{month}</b>\n"
+        "╰ Clients: {clients}"
+    ),
+    "partner_stats_empty": "No operations yet.",
+    "adm_partner_on": "Make partner",
+    "adm_partner_off": "Revoke partner",
+    "adm_btn_partner_wd": "Partner withdrawals",
+    "adm_pwd_title": "{wallet} <b>Partner withdrawals</b> (pending: {pending})",
+    "adm_pwd_pay": "Mark paid",
+    "adm_pwd_reject": "Reject",
 }

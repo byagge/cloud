@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.secrets import put_secret
 from app.db.models import Job, Server
-from app.jobs.notify import enqueue_notify
 from app.jobs.results import Done, Fail, Review
 from app.logging import get_logger
 
@@ -33,6 +32,7 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
 
     # Auto-update the open server card with the real password (no user click)
     silent = bool((job.payload or {}).get("silent"))
+    _ = silent  # kept for callers; DMs removed — card refresh only
     try:
         from aiogram import Bot
 
@@ -49,14 +49,5 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
     except Exception:
         log.exception("panel_card_refresh_failed", server_id=server.id)
 
-    # One-time DM with credentials (deduped by key+ref) — skip spam on silent backfill
-    if not silent:
-        await enqueue_notify(
-            session,
-            user_id=server.user_id,
-            key="creds_password",
-            ref=str(server.id),
-            text="creds_password",
-            payload={"server_id": server.id},
-        )
+    # Password is shown on the server card — no DM with auto-delete
     return Done()

@@ -109,21 +109,14 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
             },
             ttl=2_592_000,
         )
-        await enqueue_notify(
-            session,
-            user_id=order.user_id,
-            key="creds",
-            ref=str(server.id),
-            text="creds",
-            payload={"server_id": server.id},
-        )
+        # Password lives on the server card — no one-shot DM with auto-delete
     else:
-        # Provider did not return password on create — fetch automatically
+        # Provider did not return password on create — fetch silently for the card
         session.add(
             Job(
                 kind="reset_password",
                 class_="manage",
-                payload={"server_id": server.id, "silent": False},
+                payload={"server_id": server.id, "silent": True},
                 status="pending",
                 idem_key=f"job-pw-create-{job.id}",
                 server_id=server.id,
@@ -131,13 +124,6 @@ async def handle(session: AsyncSession, redis, partner, job: Job):
             )
         )
 
-    await enqueue_notify(
-        session,
-        user_id=order.user_id,
-        key="order_queued_ok",
-        ref=str(order.id),
-        text=f"Заказ #{order.id}: сервер создаётся.",
-    )
     await session.flush()
     return Done()
 
@@ -169,7 +155,7 @@ async def _adopt(session, redis, partner, order, job, found) -> Done | Review:
         Job(
             kind="reset_password",
             class_="manage",
-            payload={"server_id": server.id},
+            payload={"server_id": server.id, "silent": True},
             status="pending",
             idem_key=f"job-pw-{job.id}",
             server_id=server.id,

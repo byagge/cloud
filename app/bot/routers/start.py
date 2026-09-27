@@ -23,6 +23,7 @@ from app.bot.texts import t
 from app.bot.ui.emoji import pe
 from app.bot.ui.screens import decorate, home_text, support_text
 from app.config import get_settings
+from app.core.affiliate import ATTACH_INVITE, attach_client
 from app.core.ledger import LedgerKind, post_entry
 from app.core.money import money
 from app.core.servers import is_expiring
@@ -42,7 +43,8 @@ async def show_home(event: Message | CallbackQuery, user, admin_role: str | None
         db_user = await session.get(User, user.id)
         text = home_text(db_user or user, count, exp)
         lang = (db_user or user).lang or "en"
-    markup = main_menu(is_admin=bool(admin_role), lang=lang)
+        is_partner = bool(db_user and db_user.is_partner)
+    markup = main_menu(is_admin=bool(admin_role), is_partner=is_partner, lang=lang)
     await show_home_banner(event, text, markup, lang=lang)
 
 
@@ -77,6 +79,22 @@ async def _show_terms(event: Message | CallbackQuery, *, lang: str) -> None:
         await event.answer(text, reply_markup=terms_kb(lang), parse_mode="HTML")
 
 
+async def _attach_partner_if_any(session, user: User) -> None:
+    """If ref_source points to an affiliate partner, bind client once."""
+    if user.referred_by_id or not user.ref_source or not user.ref_source.startswith("ref_"):
+        return
+    try:
+        ref_tg = int(user.ref_source.removeprefix("ref_"))
+    except ValueError:
+        return
+    if ref_tg == user.tg_id:
+        return
+    referrer = await session.scalar(select(User).where(User.tg_id == ref_tg))
+    if referrer is None or not referrer.is_partner:
+        return
+    await attach_client(session, client=user, partner=referrer, kind=ATTACH_INVITE)
+
+
 async def _grant_referral_bonuses(session, user: User) -> None:
     """Welcome bonus to new user + referrer bonus once, on terms accept."""
     if not user.ref_source or not user.ref_source.startswith("ref_"):
@@ -90,6 +108,7 @@ async def _grant_referral_bonuses(session, user: User) -> None:
     referrer = await session.scalar(select(User).where(User.tg_id == ref_tg))
     if referrer is None:
         return
+    await _attach_partner_if_any(session, user)
     await post_entry(
         session,
         user_id=user.id,
@@ -118,8 +137,11 @@ async def cmd_start(message: Message, state: FSMContext, db_user, admin_role) ->
             u = await session.get(User, db_user.id)
             if u and not u.ref_source and parts[1] != f"ref_{u.tg_id}":
                 u.ref_source = parts[1]
+                await _attach_partner_if_any(session, u)
                 await session.commit()
                 db_user.ref_source = parts[1]
+                db_user.referred_by_id = u.referred_by_id
+                db_user.attach_kind = u.attach_kind
 
     await message.answer(
         f"{pe('cube')} <b>ARIX Cloud</b>",

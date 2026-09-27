@@ -503,7 +503,15 @@ async def buy_go(query: CallbackQuery, callback_data: BuyCB, db_user, redis) -> 
     text = decorate(t("order_accepted", lang, order_id=order_id, robot="{robot}"))
     from app.bot.keyboards import main_menu
 
-    await safe_edit(query, text, main_menu(is_admin=False, lang=lang))
+    await safe_edit(
+        query,
+        text,
+        main_menu(
+            is_admin=False,
+            is_partner=bool(getattr(db_user, "is_partner", False)),
+            lang=lang,
+        ),
+    )
 
 
 @router.callback_query(BuyCB.filter(F.step == "cancel"))

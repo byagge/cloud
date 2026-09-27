@@ -113,16 +113,30 @@ async def sync_servers(session: AsyncSession, redis) -> None:
             and server.ready_notified_at is None
         ):
             server.ready_notified_at = now_utc()
+            from app.bot.texts import t
+            from app.bot.ui.screens import decorate
+            from app.db.models import User
+
+            user = await session.get(User, server.user_id)
+            lang = (user.lang if user else None) or "en"
+            from html import escape as _esc
+
             await enqueue_notify(
                 session,
                 user_id=server.user_id,
                 key="server_ready",
                 ref=str(server.id),
-                text=(
-                    f"Сервер <b>{server.display_name}</b> готов.\n"
-                    f"IP: <code>{remote_s.ip}</code>\n"
-                    f"Логин: <code>{server.login or 'root'}</code>"
+                text=decorate(
+                    t(
+                        "server_ready",
+                        lang,
+                        name=_esc(server.display_name or f"#{server.id}"),
+                        ip=_esc(remote_s.ip or "—"),
+                        login=_esc(server.login or "root"),
+                        check="{check}",
+                    )
                 ),
+                immediate=True,
             )
             # Ensure SSH password is cached for the panel card
             from app.core.secrets import get_secret
@@ -133,7 +147,7 @@ async def sync_servers(session: AsyncSession, redis) -> None:
                     Job(
                         kind="reset_password",
                         class_="manage",
-                        payload={"server_id": server.id, "silent": False},
+                        payload={"server_id": server.id, "silent": True},
                         status="pending",
                         idem_key=f"ready-pw-{server.id}",
                         server_id=server.id,
@@ -321,7 +335,6 @@ async def invoices_watch(session: AsyncSession, redis) -> None:
     from app.payments.service import apply_invoice_state
     from app.core.money import D
 
-    gateway = get_gateway()
     now = now_utc()
     pending = (
         await session.scalars(
@@ -358,7 +371,8 @@ async def invoices_watch(session: AsyncSession, redis) -> None:
                     )
                     await apply_invoice_state(session, inv, remote)
                 continue
-            remote = await gateway.get_invoice(inv.gateway_invoice_id)
+            gw = get_gateway(inv.gateway)
+            remote = await gw.get_invoice(inv.gateway_invoice_id)
             await apply_invoice_state(session, inv, remote)
         except Exception:
             log.exception("invoice_poll_failed", invoice_id=inv.id)

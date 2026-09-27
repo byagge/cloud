@@ -84,10 +84,10 @@ def pay_amount_for(asset: str, amount_usd: Decimal) -> Decimal:
         return money(amount_usd)
     if asset == "TON":
         # ASSUMPTION: ~$5/TON for display; admin can override via setting ton_usd
-        rate = D(settings_store.get("ton_usd_rate") or "5")
+        rate = D(str(settings_store.get("ton_usd_rate") or "5"))
         return money(amount_usd / rate)
     if asset == "BTC":
-        rate = D(settings_store.get("btc_usd_rate") or "90000")
+        rate = D(str(settings_store.get("btc_usd_rate") or "90000"))
         return (amount_usd / rate).quantize(Decimal("0.00000001"))
     return money(amount_usd)
 

@@ -25,6 +25,16 @@ DEFAULTS: dict[str, object] = {
     "invoice_ttl_min": 60,
     # AI cost guards (weekly token counters in Redis; reset Monday 00:00 UTC)
     "ai_weekly_token_cap": 400000,
+    # Affiliate partner panel rates
+    "partner_rate_invite": "0.15",
+    "partner_rate_transfer": "0.10",
+    "partner_min_withdraw": "10",
+    # Payment gateways (CryptoBot / xRocket) — tokens set in admin
+    "cryptobot_token": "",
+    "cryptobot_enabled": False,
+    "cryptobot_testnet": False,
+    "xrocket_token": "",
+    "xrocket_enabled": False,
     "default_renew_days": 30,
     "reminder_days": [3, 1],
     "stuck_order_min": 5,
@@ -59,7 +69,7 @@ class SettingsStore:
         return DEFAULTS.get(key, default)
 
     def decimal(self, key: str) -> Decimal:
-        return D(self.get(key))
+        return D(str(self.get(key)))
 
     def bool(self, key: str) -> bool:
         v = self.get(key)
@@ -68,7 +78,14 @@ class SettingsStore:
         return str(v).lower() in {"1", "true", "yes"}
 
     def int(self, key: str) -> int:
-        return int(self.get(key))  # type: ignore[arg-type]
+        v = self.get(key)
+        if isinstance(v, bool):
+            return int(v)
+        if isinstance(v, int) and not isinstance(v, bool):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        return int(D(str(v)))
 
     async def set(self, session: AsyncSession, key: str, value: object, updated_by: int | None = None) -> None:
         row = await session.get(Setting, key)

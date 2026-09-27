@@ -28,6 +28,7 @@ def decorate(text: str) -> str:
         "{users}": pe("users"),
         "{chart}": pe("chart"),
         "{bag}": pe("bag"),
+        "{link}": pe("link"),
     }
     for k, v in mapping.items():
         text = text.replace(k, v)

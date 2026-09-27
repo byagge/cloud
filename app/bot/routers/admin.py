@@ -13,11 +13,15 @@ from sqlalchemy import func, select
 
 from app.bot.keyboards import (
     AdmCB,
+    admin_gateway_kb,
+    admin_gateways_kb,
     admin_home_kb,
     admin_invoice_kb,
     admin_job_kb,
     admin_list_kb,
     admin_order_kb,
+    admin_partner_wd_kb,
+    admin_partner_wd_open_kb,
     admin_server_kb,
     admin_settings_kb,
     admin_user_kb,
@@ -31,7 +35,17 @@ from app.core.ledger import LedgerKind, post_entry
 from app.core.money import D, format_usd, money
 from app.core.pricing import client_price
 from app.core.settings_store import settings_store
-from app.db.models import AuditLog, Invoice, Job, LedgerEntry, Order, Server, User
+from app.core.affiliate import settle_withdraw
+from app.db.models import (
+    AuditLog,
+    Invoice,
+    Job,
+    LedgerEntry,
+    Order,
+    PartnerWithdraw,
+    Server,
+    User,
+)
 from app.db.session import get_session_factory
 from app.payments.base import GatewayInvoice
 from app.payments.crypto import find_wallet, get_wallets, set_wallet_enabled, upsert_wallet
@@ -49,6 +63,10 @@ class AdminBal(StatesGroup):
 
 
 class AdminAddr(StatesGroup):
+    waiting = State()
+
+
+class AdminGatewayToken(StatesGroup):
     waiting = State()
 
 
@@ -199,13 +217,55 @@ async def admin_user_open(query: CallbackQuery, callback_data: AdmCB, db_user, a
         f"├ Username: {uname}\n"
         f"├ Имя: {escape(u.first_name or '—')}\n"
         f"├ Баланс: <b>{format_usd(u.balance_usd)}</b>\n"
+        f"├ Партнёр: <b>{'да' if u.is_partner else 'нет'}</b>\n"
+        f"├ Партнёрский баланс: <b>{format_usd(u.partner_balance_usd)}</b>\n"
         f"├ Язык: {u.lang}\n"
         f"├ Banned: <b>{'да' if u.banned else 'нет'}</b>\n"
         f"├ Серверов: {srv_n}\n"
         f"├ Заказов: {ord_n}\n"
         f"╰ Реф: <code>{escape(u.ref_source or '—')}</code>"
     )
-    await safe_edit(query, text, admin_user_kb(u.id, banned=u.banned, lang=lang))
+    await safe_edit(
+        query, text, admin_user_kb(u.id, banned=u.banned, is_partner=u.is_partner, lang=lang)
+    )
+
+
+@router.callback_query(AdmCB.filter((F.section == "usr") & (F.action.in_({"partner_on", "partner_off"}))))
+async def admin_user_partner(query: CallbackQuery, callback_data: AdmCB, db_user, admin_role) -> None:
+    if not _require(admin_role, "operator"):
+        await query.answer("operator+", show_alert=True)
+        return
+    uid = int(callback_data.arg)
+    grant = callback_data.action == "partner_on"
+    factory = get_session_factory()
+    async with factory() as session:
+        u = await session.get(User, uid)
+        if not u:
+            await query.answer(t("not_found", db_user.lang), show_alert=True)
+            return
+        u.is_partner = grant
+        await _audit(
+            session,
+            actor_id=db_user.tg_id,
+            action="user:partner_on" if grant else "user:partner_off",
+            subject_type="user",
+            subject_id=uid,
+        )
+        if grant:
+            from app.jobs.notify import enqueue_notify
+
+            lang_u = u.lang or "en"
+            await enqueue_notify(
+                session,
+                user_id=u.id,
+                key=f"partner_granted:{u.id}",
+                ref=str(u.id),
+                text=t("partner_granted_notify", lang_u),
+                immediate=True,
+            )
+        await session.commit()
+    await query.answer("ok")
+    await admin_user_open(query, AdmCB(section="usr", action="open", arg=str(uid)), db_user, admin_role)
 
 
 @router.callback_query(AdmCB.filter((F.section == "usr") & (F.action.in_({"ban", "unban"}))))
@@ -1097,6 +1157,151 @@ async def admin_addr_save(message: Message, state: FSMContext, db_user, admin_ro
     await message.answer(t("admin_wallet_set", db_user.lang, network=wid))
 
 
+# ── Payment gateways (CryptoBot / xRocket) ────────────────────────────
+
+_GATEWAY_META = {
+    "cryptobot": {
+        "label": "CryptoBot",
+        "token_key": "cryptobot_token",
+        "enabled_key": "cryptobot_enabled",
+        "hint": "Crypto Pay API Token из @CryptoBot → Crypto Pay → Create App",
+    },
+    "xrocket": {
+        "label": "xRocket",
+        "token_key": "xrocket_token",
+        "enabled_key": "xrocket_enabled",
+        "hint": "Rocket Pay API token из @xRocket → Rocket Pay → Create App",
+    },
+}
+
+
+@router.callback_query(AdmCB.filter((F.section == "pgw") & (F.action == "list")))
+async def admin_pgw_list(query: CallbackQuery, db_user, admin_role) -> None:
+    if not _require(admin_role, "owner"):
+        await query.answer("owner", show_alert=True)
+        return
+    lang = db_user.lang or "ru"
+    text = decorate(t("adm_gateways_title", lang, link="{link}"))
+    await safe_edit(query, text, admin_gateways_kb(lang))
+
+
+@router.callback_query(AdmCB.filter((F.section == "pgw") & (F.action == "open")))
+async def admin_pgw_open(query: CallbackQuery, callback_data: AdmCB, db_user, admin_role) -> None:
+    if not _require(admin_role, "owner"):
+        return
+    lang = db_user.lang or "ru"
+    gid = callback_data.arg
+    meta = _GATEWAY_META.get(gid)
+    if not meta:
+        await query.answer(t("not_found", lang), show_alert=True)
+        return
+    token = str(settings_store.get(meta["token_key"]) or "").strip()
+    enabled = bool(settings_store.bool(meta["enabled_key"]) and token)
+    masked = ("…" + token[-6:]) if len(token) > 8 else ("задан" if token else "не задан")
+    text = decorate(
+        t(
+            "adm_gateway_card",
+            lang,
+            label=meta["label"],
+            status="ON" if enabled else "OFF",
+            token=masked,
+            hint=meta["hint"],
+            link="{link}",
+        )
+    )
+    await safe_edit(
+        query,
+        text,
+        admin_gateway_kb(gid, enabled=enabled, has_token=bool(token), lang=lang),
+    )
+
+
+@router.callback_query(AdmCB.filter((F.section == "pgw") & (F.action == "tog")))
+async def admin_pgw_tog(query: CallbackQuery, callback_data: AdmCB, db_user, admin_role) -> None:
+    if not _require(admin_role, "owner"):
+        return
+    gid = callback_data.arg
+    meta = _GATEWAY_META.get(gid)
+    if not meta:
+        await query.answer(t("not_found", db_user.lang), show_alert=True)
+        return
+    token = str(settings_store.get(meta["token_key"]) or "").strip()
+    if not token:
+        await query.answer(t("adm_gateway_need_token", db_user.lang), show_alert=True)
+        return
+    new_state = not bool(settings_store.bool(meta["enabled_key"]))
+    factory = get_session_factory()
+    async with factory() as session:
+        await settings_store.set(
+            session, meta["enabled_key"], new_state, updated_by=db_user.id
+        )
+        await _audit(
+            session,
+            actor_id=db_user.tg_id,
+            action="gateway:toggle",
+            subject_type="gateway",
+            after={"id": gid, "enabled": new_state},
+        )
+        await session.commit()
+    await query.answer("ON" if new_state else "OFF")
+    await admin_pgw_open(query, AdmCB(section="pgw", action="open", arg=gid), db_user, admin_role)
+
+
+@router.callback_query(AdmCB.filter((F.section == "pgw") & (F.action == "token")))
+async def admin_pgw_token(
+    query: CallbackQuery, callback_data: AdmCB, state: FSMContext, db_user, admin_role
+) -> None:
+    if not _require(admin_role, "owner"):
+        return
+    gid = callback_data.arg
+    meta = _GATEWAY_META.get(gid)
+    if not meta:
+        await query.answer(t("not_found", db_user.lang), show_alert=True)
+        return
+    await state.set_state(AdminGatewayToken.waiting)
+    await state.update_data(gateway_id=gid)
+    await query.message.answer(t("adm_token_ask", db_user.lang, label=meta["label"]))
+    await query.answer()
+
+
+@router.message(AdminGatewayToken.waiting)
+async def admin_pgw_token_save(message: Message, state: FSMContext, db_user, admin_role) -> None:
+    if not _require(admin_role, "owner"):
+        await state.clear()
+        return
+    data = await state.get_data()
+    gid = data.get("gateway_id") or ""
+    await state.clear()
+    meta = _GATEWAY_META.get(gid)
+    if not meta:
+        await message.answer("?")
+        return
+    token = (message.text or "").strip()
+    if len(token) < 8:
+        await message.answer(t("adm_token_bad", db_user.lang))
+        return
+    # delete message with secret if possible
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    factory = get_session_factory()
+    async with factory() as session:
+        await settings_store.set(session, meta["token_key"], token, updated_by=db_user.id)
+        await _audit(
+            session,
+            actor_id=db_user.tg_id,
+            action="gateway:token",
+            subject_type="gateway",
+            subject_id=None,
+            after={"id": gid, "token_set": True},
+        )
+        await session.commit()
+    await message.answer(t("adm_token_ok", db_user.lang, label=meta["label"]))
+
+
+# ── Commands ──────────────────────────────────────────────────────────
+
 @router.message(Command("set_wallet"))
 async def set_wallet_cmd(message: Message, db_user, admin_role) -> None:
     if not _require(admin_role, "owner"):
@@ -1151,3 +1356,111 @@ async def fake_pay(message: Message, db_user, admin_role) -> None:
         await apply_invoice_state(session, inv, remote)
         await session.commit()
     await message.answer(f"Invoice #{invoice_id} marked paid")
+
+
+# ── Partner withdraws ─────────────────────────────────────────────────
+
+
+@router.callback_query(AdmCB.filter((F.section == "pwd") & (F.action == "list")))
+async def admin_pwd_list(query: CallbackQuery, callback_data: AdmCB, db_user, admin_role) -> None:
+    if not _require(admin_role, "operator"):
+        await query.answer("operator+", show_alert=True)
+        return
+    lang = db_user.lang or "ru"
+    page = _page(callback_data.arg)
+    factory = get_session_factory()
+    async with factory() as session:
+        rows = (
+            await session.scalars(
+                select(PartnerWithdraw)
+                .order_by(PartnerWithdraw.id.desc())
+                .offset(page * PAGE)
+                .limit(PAGE + 1)
+            )
+        ).all()
+        has_next = len(rows) > PAGE
+        rows = rows[:PAGE]
+        items: list[tuple[str, str]] = []
+        for w in rows:
+            p = await session.get(User, w.partner_user_id)
+            uname = f"@{p.username}" if p and p.username else f"u{w.partner_user_id}"
+            items.append(
+                (str(w.id), f"#{w.id} · {w.status} · {format_usd(w.amount_usd)} · {uname}"[:56])
+            )
+        pending = (
+            await session.scalar(
+                select(func.count())
+                .select_from(PartnerWithdraw)
+                .where(PartnerWithdraw.status == "pending")
+            )
+            or 0
+        )
+    text = decorate(t("adm_pwd_title", lang, wallet="{wallet}", pending=pending))
+    if not items:
+        text += t("adm_empty", lang)
+    await safe_edit(
+        query,
+        text,
+        admin_partner_wd_kb(items, page=page, has_next=has_next, lang=lang),
+    )
+
+
+@router.callback_query(AdmCB.filter((F.section == "pwd") & (F.action == "open")))
+async def admin_pwd_open(query: CallbackQuery, callback_data: AdmCB, db_user, admin_role) -> None:
+    if not _require(admin_role, "operator"):
+        await query.answer("operator+", show_alert=True)
+        return
+    lang = db_user.lang or "ru"
+    wid = int(callback_data.arg)
+    factory = get_session_factory()
+    async with factory() as session:
+        w = await session.get(PartnerWithdraw, wid)
+        if not w:
+            await query.answer(t("not_found", lang), show_alert=True)
+            return
+        p = await session.get(User, w.partner_user_id)
+    uname = f"@{escape(p.username)}" if p and p.username else "—"
+    text = (
+        f"<b>Вывод партнёра #{w.id}</b>\n\n"
+        f"├ Статус: <b>{w.status}</b>\n"
+        f"├ Сумма: <b>{format_usd(w.amount_usd)}</b>\n"
+        f"├ Партнёр: {uname} (id {w.partner_user_id}, tg <code>{p.tg_id if p else '—'}</code>)\n"
+        f"├ Реквизиты:\n<code>{escape(w.details or '—')}</code>\n"
+        f"╰ Заметка: {escape(w.admin_note or '—')}"
+    )
+    await safe_edit(
+        query,
+        text,
+        admin_partner_wd_open_kb(w.id, pending=w.status == "pending", lang=lang),
+    )
+
+
+@router.callback_query(AdmCB.filter((F.section == "pwd") & (F.action.in_({"pay", "reject"}))))
+async def admin_pwd_settle(query: CallbackQuery, callback_data: AdmCB, db_user, admin_role) -> None:
+    if not _require(admin_role, "owner"):
+        await query.answer("owner", show_alert=True)
+        return
+    wid = int(callback_data.arg)
+    paid = callback_data.action == "pay"
+    factory = get_session_factory()
+    async with factory() as session:
+        w = await session.get(PartnerWithdraw, wid)
+        if not w:
+            await query.answer(t("not_found", db_user.lang), show_alert=True)
+            return
+        await settle_withdraw(
+            session,
+            withdraw=w,
+            paid=paid,
+            admin_tg_id=db_user.tg_id,
+        )
+        await _audit(
+            session,
+            actor_id=db_user.tg_id,
+            action=f"partner_wd:{'paid' if paid else 'rejected'}",
+            subject_type="partner_withdraw",
+            subject_id=wid,
+        )
+        await session.commit()
+    await query.answer("ok")
+    await admin_pwd_open(query, AdmCB(section="pwd", action="open", arg=str(wid)), db_user, admin_role)

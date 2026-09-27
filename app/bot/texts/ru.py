@@ -18,6 +18,7 @@ TEXTS = {
     "btn_profile": "Профиль",
     "btn_support": "Поддержка",
     "btn_admin": "Админка",
+    "btn_partner": "Партнёр",
     "btn_back": "◀ Назад",
     "btn_menu": "◀ В меню",
     "btn_topup": "Пополнить баланс",
@@ -30,6 +31,7 @@ TEXTS = {
     "btn_accept_terms": "Принимаю, продолжить",
     "btn_write_manager": "Написать менеджеру",
     "btn_check_pay": "Проверить оплату",
+    "btn_pay_open": "Оплатить в боте",
     "btn_enter_promo": "Ввести промокод",
     "btn_pay": "Оплатить {price}",
     "btn_topup_missing": "Пополнить на {missing}",
@@ -103,7 +105,17 @@ TEXTS = {
         "Отправь точную сумму на адрес. После оплаты нажми «Проверить» "
         "или дождись автозачисления (1–3 мин)."
     ),
-    "invoice_no_wallets": "Крипто-адреса ещё не настроены. Напишите в поддержку.",
+    "invoice_gateway": (
+        "{wallet} <b>Оплата #{invoice_id}</b>\n\n"
+        "├ Способ: <b>{method}</b>\n"
+        "├ Сумма: <b>{amount}</b>\n"
+        "├ Сеть: {network}\n"
+        "╰ До: {expires}\n\n"
+        "Нажми «Оплатить в боте», оплати и вернись — «Проверить» "
+        "или дождись автозачисления."
+    ),
+    "invoice_gateway_fail": "Не удалось создать счёт: {err}",
+    "invoice_no_wallets": "Способы оплаты ещё не настроены. Напишите в поддержку.",
     "pay_status_paid": "Оплата получена ✓",
     "pay_status_pending": "Пока не видно. Подождите 1–2 мин и проверьте снова.",
     "servers_empty": "{monitor} <b>Мои серверы</b>\n\nПока пусто. Купите первый сервер.",
@@ -244,27 +256,25 @@ TEXTS = {
         "Сервер создаётся сразу после оплаты с баланса."
     ),
     "order_accepted": (
-        "{robot} Заказ <b>#{order_id}</b> принят. Создаём сервер, обычно 1–3 минуты.\n"
-        "Пришлю доступы сюда."
+        "{robot} Заказ <b>#{order_id}</b> принят.\n"
+        "Сервер подготавливается, обычно 1–3 минуты.\n"
+        "Когда будет готов — пришлём уведомление."
     ),
     "order_create_failed": (
         "Не удалось создать сервер. Попробуйте позже.\n"
         "Средства возвращены на баланс."
     ),
+    "order_preparing": (
+        "{robot} Заказ <b>#{order_id}</b>: сервер подготавливается…"
+    ),
+    "server_ready": (
+        "{check} Сервер <b>{name}</b> готов.\n"
+        "IP: <code>{ip}</code>\n"
+        "Логин: <code>{login}</code>\n\n"
+        "Пароль — в карточке сервера."
+    ),
     "order_stale": "Заказ устарел",
     "need_funds": "Недостаточно средств",
-    "creds": (
-        "{lock} <b>Доступы к серверу #{server_id}</b>\n\n"
-        "Логин: <code>{login}</code>\n"
-        "Пароль: <code>{password}</code>\n\n"
-        "{warn} Пароль показан один раз. Сообщение удалится через 10 минут."
-    ),
-    "creds_password": (
-        "{lock} <b>Новый пароль #{server_id}</b>\n\n"
-        "Логин: <code>{login}</code>\n"
-        "Пароль: <code>{password}</code>\n\n"
-        "{warn} Сохраните сейчас. Сообщение удалится через 10 минут."
-    ),
     "admin_home": (
         "{crown} <b>Админка</b>\n\n"
         "Клиенты: {users}\n"
@@ -295,6 +305,7 @@ TEXTS = {
     "adm_btn_fin": "Финансы",
     "adm_btn_settings": "Настройки",
     "adm_btn_wallets": "Кошельки",
+    "adm_btn_gateways": "CryptoBot / xRocket",
     "adm_btn_audit": "Аудит",
     "adm_btn_broadcast": "Рассылка",
     "adm_btn_admin": "◀ Админка",
@@ -323,6 +334,21 @@ TEXTS = {
     "adm_pay_on": "Включить оплату",
     "adm_pay_off": "Отключить оплату",
     "adm_set_addr": "Задать адрес",
+    "adm_set_token": "Задать токен",
+    "adm_gateways_title": (
+        "{link} <b>Платёжные шлюзы</b>\n\n"
+        "CryptoBot и xRocket. Задайте API-токен и включите способ."
+    ),
+    "adm_gateway_card": (
+        "{link} <b>{label}</b>\n\n"
+        "├ Статус: <b>{status}</b>\n"
+        "├ Токен: <code>{token}</code>\n"
+        "╰ {hint}"
+    ),
+    "adm_gateway_need_token": "Сначала задайте токен",
+    "adm_token_ask": "Отправьте API-токен для {label} (сообщение будет удалено):",
+    "adm_token_bad": "Токен слишком короткий",
+    "adm_token_ok": "Токен {label} сохранён",
     "adm_bal_ask": "Сумма корректировки для #{id} (например 10 или -5):",
     "adm_addr_ask": "Отправьте адрес для {network}:",
     "adm_bc_ask": "Пришлите сообщение для рассылки — как есть (текст/Markdown/фото/медиа):",
@@ -343,4 +369,89 @@ TEXTS = {
         "├ Адрес: <code>{address}</code>\n"
         "╰ Статус: <b>{status}</b>"
     ),
+    # Affiliate partner panel
+    "partner_denied": "Панель партнёра доступна только партнёрам.",
+    "partner_granted_notify": (
+        "🎉 Вам выдан статус партнёра ARIX Cloud!\n"
+        "Откройте меню → «Партнёр»."
+    ),
+    "partner_home": (
+        "{crown} <b>Панель партнёра</b>\n\n"
+        "{wallet} Баланс: <b>{balance}</b>\n"
+        "├ Заработано всего: <b>{earned}</b>\n"
+        "├ За месяц: <b>{month}</b>\n"
+        "├ Клиентов: <b>{clients}</b>\n"
+        "├ Приглашение: <b>{rate_invite}%</b>\n"
+        "╰ Передача сервера: <b>{rate_transfer}%</b>"
+    ),
+    "partner_btn_link": "Ссылка",
+    "partner_btn_xfer": "Передать сервер",
+    "partner_btn_refs": "Рефералы",
+    "partner_btn_stats": "Статистика",
+    "partner_btn_balance": "Баланс / Вывод",
+    "partner_btn_withdraw": "Вывести",
+    "partner_btn_detach": "Открепить",
+    "partner_link": (
+        "{users} <b>Партнёрская ссылка</b>\n\n"
+        "Клиент закрепляется за вами при переходе.\n"
+        "Ваш доход: <b>{rate}%</b> с каждого пополнения.\n\n"
+        "{pin} <code>{link}</code>"
+    ),
+    "partner_refs_title": "{users} <b>Рефералы</b> ({count})",
+    "partner_refs_empty": "\n\nПока нет закреплённых клиентов.",
+    "partner_ref_card": (
+        "{users} <b>Клиент #{id}</b>\n\n"
+        "├ TG: <code>{tg_id}</code>\n"
+        "├ Username: {username}\n"
+        "├ Имя: {name}\n"
+        "├ Тип: <b>{kind}</b> ({rate}%)\n"
+        "├ Заработано с него: <b>{earned}</b>\n"
+        "╰ Серверов: {servers}"
+    ),
+    "partner_detach_ok": "Клиент откреплён",
+    "partner_xfer_title": (
+        "{monitor} <b>Передать сервер</b>\n\n"
+        "Клиент получит сервер и закрепится за вами ({rate}% с пополнений)."
+    ),
+    "partner_xfer_hint": "\n\nВыберите сервер:",
+    "partner_xfer_empty": "\n\nНет серверов для передачи.",
+    "partner_xfer_ask_tg": "Сервер #{sid}: отправьте Telegram ID получателя (число):",
+    "partner_xfer_bad_tg": "Нужен числовой Telegram ID.",
+    "partner_xfer_self": "Нельзя передать сервер себе.",
+    "partner_xfer_no_user": "Пользователь ещё не запускал бота. Попросите его написать /start.",
+    "partner_xfer_ok": (
+        "✅ Сервер #{sid} передан пользователю <code>{tg_id}</code>.\n"
+        "Клиент закреплён · комиссия {rate}%."
+    ),
+    "partner_xfer_attach_fail": (
+        "Сервер #{sid} передан <code>{tg_id}</code>, но закрепить клиента не удалось."
+    ),
+    "partner_balance": (
+        "{wallet} <b>Партнёрский баланс</b>\n\n"
+        "├ Доступно: <b>{balance}</b>\n"
+        "├ Заработано всего: <b>{earned}</b>\n"
+        "├ Заявок в ожидании: {pending}\n"
+        "╰ Мин. вывод: ${min_withdraw}"
+    ),
+    "partner_wd_ask_amount": "Сумма вывода (мин. ${min}):",
+    "partner_wd_ask_details": "Реквизиты для выплаты (кошелёк / карта / контакты):",
+    "partner_wd_bad_amount": "Некорректная сумма.",
+    "partner_wd_bad_details": "Укажите реквизиты подробнее (от 5 символов).",
+    "partner_wd_min": "Минимум для вывода: {min}",
+    "partner_wd_insufficient": "Недостаточно на балансе ({balance}).",
+    "partner_wd_ok": "✅ Заявка #{id} на {amount} отправлена. Админ получит уведомление.",
+    "partner_stats": (
+        "{chart} <b>Статистика заработка</b>\n\n"
+        "├ Баланс: <b>{balance}</b>\n"
+        "├ Всего: <b>{earned}</b>\n"
+        "├ За месяц: <b>{month}</b>\n"
+        "╰ Клиентов: {clients}"
+    ),
+    "partner_stats_empty": "Пока нет операций.",
+    "adm_partner_on": "Сделать партнёром",
+    "adm_partner_off": "Снять партнёра",
+    "adm_btn_partner_wd": "Выводы партнёров",
+    "adm_pwd_title": "{wallet} <b>Выводы партнёров</b> (ожидают: {pending})",
+    "adm_pwd_pay": "Оплачено",
+    "adm_pwd_reject": "Отклонить",
 }

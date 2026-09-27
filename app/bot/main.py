@@ -35,6 +35,30 @@ async def _migrate_and_seed() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Additive column upgrades for existing DBs (create_all won't alter)
+        alters = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_partner BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_balance_usd NUMERIC(12,2) NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id BIGINT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS attach_kind TEXT",
+        ]
+        # SQLite lacks IF NOT EXISTS for ADD COLUMN in older versions — try/ignore
+        for stmt in alters:
+            try:
+                await conn.execute(text(stmt))
+            except Exception:
+                try:
+                    # SQLite variant without IF NOT EXISTS
+                    simple = stmt.replace(" IF NOT EXISTS", "")
+                    if "BOOLEAN" in simple:
+                        simple = simple.replace("BOOLEAN NOT NULL DEFAULT false", "INTEGER DEFAULT 0")
+                    if "NUMERIC(12,2)" in simple:
+                        simple = simple.replace("NUMERIC(12,2) NOT NULL DEFAULT 0", "NUMERIC DEFAULT 0")
+                    if "BIGINT" in simple:
+                        simple = simple.replace("BIGINT", "INTEGER")
+                    await conn.execute(text(simple))
+                except Exception:
+                    pass
     settings = get_settings()
     async with session_scope() as session:
         for key, value in DEFAULTS.items():
@@ -87,9 +111,18 @@ async def pay_webhook(request: web.Request) -> web.Response:
     body = await request.read()
     if len(body) > 65536:
         return web.Response(status=413)
-    gateway = get_gateway()
+    from app.payments import get_gateway
+
+    headers = request.headers
+    # Detect provider by signature header
+    if headers.get("crypto-pay-api-signature") or headers.get("Crypto-Pay-Api-Signature"):
+        gateway = get_gateway("cryptobot")
+    elif headers.get("rocket-pay-signature") or headers.get("Rocket-Pay-Signature"):
+        gateway = get_gateway("xrocket")
+    else:
+        gateway = get_gateway()
     try:
-        event = gateway.verify_webhook(request.headers, body)
+        event = gateway.verify_webhook(headers, body)
     except InvalidSignature:
         return web.Response(status=401)
     from app.db.models import Invoice
@@ -97,14 +130,18 @@ async def pay_webhook(request: web.Request) -> web.Response:
     async with session_scope() as session:
         try:
             invoice_id = int(event.order_ref)
-        except ValueError:
+        except (ValueError, TypeError):
             return web.Response(status=200)
         inv = await session.get(Invoice, invoice_id)
         if inv is None:
             return web.Response(status=200)
         if inv.gateway_invoice_id and inv.gateway_invoice_id != event.gateway_invoice_id:
             return web.Response(status=200)
-        remote = await gateway.get_invoice(event.gateway_invoice_id)
+        try:
+            remote = await get_gateway(inv.gateway).get_invoice(event.gateway_invoice_id)
+        except Exception:
+            log.exception("pay_webhook_get_invoice", invoice_id=invoice_id)
+            return web.Response(status=200)
         await apply_invoice_state(session, inv, remote)
     return web.Response(status=200)
 
